@@ -35,7 +35,7 @@ const partySchema = new mongoose.Schema({
   ticketPrice: { type: Number, default: 0, min: 0 },
   maxGuests: { type: Number, default: 30, min: 2, max: 1000 },
   members: [{ user: { type: mongoose.Schema.Types.ObjectId, ref: 'User' }, status: { type: String, enum: ['invited', 'going', 'declined'], default: 'invited' } }],
-  contributions: [{ user: { type: mongoose.Schema.Types.ObjectId, ref: 'User' }, name: { type: String, required: true, maxlength: 100 }, quantity: { type: String, default: '1', maxlength: 30 }, category: { type: String, enum: ['étel', 'ital', 'egyéb'], default: 'egyéb' }, icon: { type: String, default: '✳', maxlength: 2048 } }]
+  contributions: [{ user: { type: mongoose.Schema.Types.ObjectId, ref: 'User' }, name: { type: String, required: true, maxlength: 100 }, quantity: { type: String, default: '1', maxlength: 30 }, price: { type: Number, default: 0, min: 0 }, category: { type: String, enum: ['étel', 'ital', 'egyéb'], default: 'egyéb' }, icon: { type: String, default: '✳', maxlength: 2048 } }]
 }, { timestamps: true });
 
 partySchema.index({ visibility: 1, date: 1 });
@@ -52,8 +52,17 @@ const notificationSchema = new mongoose.Schema({
   read: { type: Boolean, default: false }
 }, { timestamps: true });
 
+// Bulihez tartozó, résztvevők számára látható chatüzenetek.
+const partyMessageSchema = new mongoose.Schema({
+  party: { type: mongoose.Schema.Types.ObjectId, ref: 'Party', required: true },
+  sender: { type: mongoose.Schema.Types.ObjectId, ref: 'User', required: true },
+  text: { type: String, required: true, trim: true, maxlength: 1000 }
+}, { timestamps: true });
+partyMessageSchema.index({ party: 1, createdAt: -1 });
+
 module.exports = {
   User: mongoose.model('User', userSchema),
   Party: mongoose.model('Party', partySchema),
-  Notification: mongoose.model('Notification', notificationSchema)
+  Notification: mongoose.model('Notification', notificationSchema),
+  PartyMessage: mongoose.model('PartyMessage', partyMessageSchema)
 };

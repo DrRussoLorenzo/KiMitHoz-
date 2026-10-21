@@ -3,7 +3,7 @@ const crypto = require('crypto');
 const path = require('path');
 const multer = require('multer');
 const auth = require('../middleware/auth');
-const { Party, User, Notification } = require('../models');
+const { Party, User, Notification, PartyMessage } = require('../models');
 const emojiOnly = /^(?:(?:\p{Extended_Pictographic}(?:\uFE0F|\p{Emoji_Modifier})?(?:\u200D\p{Extended_Pictographic}(?:\uFE0F|\p{Emoji_Modifier})?)*)|(?:\p{Regional_Indicator}{2})|(?:[0-9#*]\uFE0F?\u20E3))$/u;
 
 const iconValue = (value) => {
@@ -41,6 +41,30 @@ router.post('/cover-image', coverUpload.single('image'), (req, res) => {
 // A listákhoz a frontend által megjelenített publikus felhasználói mezőket töltjük be.
 const populateParty = (query) => query.populate('host', 'username nickname avatar').populate('members.user', 'username nickname avatar').populate('contributions.user', 'username nickname avatar');
 const memberOf = (party, userId) => party.members.find((member) => member.user?._id?.equals(userId) || member.user?.equals?.(userId));
+const canChat = (party, userId) => party.host.equals(userId) || memberOf(party, userId)?.status === 'going';
+
+router.get('/:id/chat/messages', async (req, res, next) => {
+  try {
+    const party = await Party.findById(req.params.id).select('host members');
+    if (!party) return res.status(404).json({ message: 'A buli nem található.' });
+    if (!canChat(party, req.user._id)) return res.status(403).json({ message: 'A chatet csak a buli résztvevői érhetik el.' });
+    const messages = await PartyMessage.find({ party: party._id }).sort({ createdAt: -1 }).limit(100).populate('sender', 'nickname avatar').lean();
+    res.json({ messages: messages.reverse() });
+  } catch (error) { next(error); }
+});
+
+router.post('/:id/chat/messages', async (req, res, next) => {
+  try {
+    const party = await Party.findById(req.params.id).select('host members');
+    if (!party) return res.status(404).json({ message: 'A buli nem található.' });
+    if (!canChat(party, req.user._id)) return res.status(403).json({ message: 'A chatbe csak a buli résztvevői írhatnak.' });
+    const text = typeof req.body.text === 'string' ? req.body.text.trim() : '';
+    if (!text || text.length > 1000) return res.status(400).json({ message: 'Az üzenet 1–1000 karakter hosszú lehet.' });
+    const message = await PartyMessage.create({ party: party._id, sender: req.user._id, text });
+    await message.populate('sender', 'nickname avatar');
+    res.status(201).json({ message });
+  } catch (error) { next(error); }
+});
 
 // Nyilvános eseményhez kell koordináta; privát buli helyét nem tesszük térképre.
 const validateCoordinates = (coordinates) => {
@@ -174,6 +198,7 @@ router.delete('/:id', async (req, res, next) => {
     if (!party.host.equals(req.user._id)) return res.status(403).json({ message: 'Csak a házigazda törölheti ezt a bulit.' });
     if (typeof req.body.confirmation !== 'string' || req.body.confirmation.trim() !== party.title) return res.status(400).json({ message: 'A törléshez írd be pontosan a buli nevét.' });
     await Notification.deleteMany({ party: party._id });
+    await PartyMessage.deleteMany({ party: party._id });
     await party.deleteOne();
     res.json({ message: 'A buli törölve.' });
   } catch (error) { next(error); }
@@ -261,6 +286,19 @@ router.post('/:id/respond', async (req, res, next) => {
   } catch (error) { next(error); }
 });
 
+router.post('/:id/leave', async (req, res, next) => {
+  try {
+    const party = await Party.findById(req.params.id);
+    if (!party) return res.status(404).json({ message: 'A buli nem található.' });
+    if (party.host.equals(req.user._id)) return res.status(400).json({ message: 'A szervező nem léphet ki a saját bulijából. A buli törölhető vagy átadható másik szervezőnek.' });
+    const membership = party.members.find((member) => member.user.equals(req.user._id) && member.status === 'going');
+    if (!membership) return res.status(404).json({ message: 'Nem vagy résztvevője ennek a bulinak.' });
+    party.members.pull(membership._id);
+    await party.save();
+    res.json({ message: 'Kiléptél a buliból.' });
+  } catch (error) { next(error); }
+});
+
 router.delete('/:id/members/:userId', async (req, res, next) => {
   try {
     const party = await Party.findById(req.params.id);
@@ -280,10 +318,12 @@ router.post('/:id/items', async (req, res, next) => {
     const party = await Party.findById(req.params.id);
     if (!party || !memberOf(party, req.user._id) || memberOf(party, req.user._id).status !== 'going') return res.status(403).json({ message: 'Csak résztvevő adhat hozzá tételt.' });
     const { name, quantity = '1', category = 'egyéb' } = req.body;
+    const price = Number(req.body.price ?? 0);
     const icon = typeof req.body.icon === 'string' && req.body.icon.trim() ? req.body.icon.trim() : '✳';
     if (!name?.trim()) return res.status(400).json({ message: 'A tétel megnevezése kötelező.' });
+    if (!Number.isSafeInteger(price) || price < 0) return res.status(400).json({ message: 'Az ár nemnegatív, egész forint összeg legyen.' });
     if (!iconValue(icon)) return res.status(400).json({ message: 'Az ikon egyetlen emoji vagy http(s) kép URL lehet.' });
-    party.contributions.push({ user: req.user._id, name: name.trim(), quantity, category, icon });
+    party.contributions.push({ user: req.user._id, name: name.trim(), quantity, price, category, icon });
     await party.save();
     res.status(201).json({ party: await populateParty(Party.findById(party._id)) });
   } catch (error) { next(error); }

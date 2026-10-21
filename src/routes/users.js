@@ -4,12 +4,12 @@ const { User, Notification } = require('../models');
 
 router.use(auth);
 // Nyilvános profilmezők; a jelszóhash nem része a felhasználókártyának.
-const card = (user) => ({ id: user._id, username: user.username, nickname: user.nickname, avatar: user.avatar, bio: user.bio });
+const card = (user) => ({ id: user._id, username: user.username, nickname: user.nickname, age: user.age, avatar: user.avatar, bio: user.bio });
 
 // Ismerőslista és beérkezett felkérések.
 router.get('/friends', async (req, res, next) => {
   try {
-    const user = await User.findById(req.user.id).populate('friends', 'username nickname avatar bio').populate('friendRequests', 'username nickname avatar bio');
+    const user = await User.findById(req.user.id).populate('friends', 'username nickname age avatar bio').populate('friendRequests', 'username nickname age avatar bio');
     res.json({ friends: user.friends.map(card), requests: user.friendRequests.map(card) });
   } catch (error) { next(error); }
 });
@@ -28,7 +28,7 @@ router.get('/search', async (req, res, next) => {
 router.get('/:id', async (req, res, next) => {
   try {
     if (!req.user.friends.some((id) => id.equals(req.params.id))) return res.status(404).json({ message: 'A profil nem található.' });
-    const user = await User.findById(req.params.id).select('username nickname avatar bio');
+    const user = await User.findById(req.params.id).select('username nickname age avatar bio');
     if (!user) return res.status(404).json({ message: 'A profil nem található.' });
     res.json({ user: card(user) });
   } catch (error) { next(error); }
@@ -82,7 +82,7 @@ router.patch('/me', async (req, res, next) => {
       if (typeof req.body.settings.notifications === 'boolean') req.user.settings.notifications = req.body.settings.notifications;
     }
     await req.user.save();
-    res.json({ user: { id: req.user._id, email: req.user.email, username: req.user.username, nickname: req.user.nickname, avatar: req.user.avatar, bio: req.user.bio, settings: req.user.settings } });
+    res.json({ user: { id: req.user._id, email: req.user.email, username: req.user.username, nickname: req.user.nickname, age: req.user.age, avatar: req.user.avatar, bio: req.user.bio, settings: req.user.settings } });
   } catch (error) { next(error); }
 });
 

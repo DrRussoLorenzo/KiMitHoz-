@@ -11,15 +11,15 @@ const tokenFor = (user) => jwt.sign({ sub: user._id.toString() }, process.env.JW
 // Új fiók létrehozása, jelszóhash-eléssel.
 router.post('/register', async (req, res, next) => {
   try {
-    const { email, username, nickname, parsedage, password } = req.body;
-    if (!email || !username || !nickname || !age  || !password) return res.status(400).json({ message: 'Minden mező kitöltése kötelező.' });
+    const { email, username, nickname, age, password } = req.body;
+    if (!email || !username || !nickname || !age || !password) return res.status(400).json({ message: 'Minden mező kitöltése kötelező.' });
     if (!/^\S+@\S+\.\S+$/.test(email)) return res.status(400).json({ message: 'Adj meg egy érvényes e-mail-címet.' });
     if (!/^[a-zA-Z0-9_]{3,24}$/.test(username)) return res.status(400).json({ message: 'A felhasználónév 3–24 karakteres lehet (betű, szám, _).' });
     const parsedAge = Number(age);
     if (!Number.isInteger(parsedAge) || parsedAge < 16 || parsedAge > 120) return res.status(400).json({ message: 'Az életkor 16 és 120 közötti egész szám legyen.' });
     if (password.length < 8) return res.status(400).json({ message: 'A jelszó legalább 8 karakter legyen.' });
     const passwordHash = await bcrypt.hash(password, 12);
-    const user = await User.create({ email, username, nickname, parsedAge, passwordHash });
+    const user = await User.create({ email, username, nickname, age: parsedAge, passwordHash });
     res.status(201).json({ token: tokenFor(user), user: publicUser(user) });
   } catch (error) {
     if (error.code === 11000) return res.status(409).json({ message: 'Ez az e-mail-cím vagy felhasználónév már foglalt.' });

@@ -3,8 +3,8 @@
 <head>
   <meta charset="UTF-8"><meta name="viewport" content="width=device-width, initial-scale=1.0">
   <meta name="theme-color" content="#f8f7f4"><meta name="description" content="KimitHoz — szervezz bulit, hívd meg a barátaid, és tervezzetek együtt.">
-  <title>KimitHoz — együtt jobb</title>
-  <link rel="icon" type="image/x-icon" href="/images/favicon.ico">
+  <title>KimitHoz? — együtt jobb</title>
+  <link rel="icon" href="/images/favicon.ico" type="image/x-icon">
   <link rel="preconnect" href="https://fonts.googleapis.com"><link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
   <link href="https://fonts.googleapis.com/css2?family=DM+Sans:wght@400;500;600;700&family=Manrope:wght@400;500;600;700;800&display=swap" rel="stylesheet">
   <link rel="stylesheet" href="https://unpkg.com/maplibre-gl@5.6.1/dist/maplibre-gl.css">
@@ -16,7 +16,7 @@
   <div id="toast" class="toast" role="status"></div>
   <main id="auth-screen" class="auth-screen">
     <section class="auth-art">
-      <a class="brand brand-light" href="#"><span class="brand-mark">k</span> kimithoz</a>
+      <a class="brand brand-light" href="#"><span class="brand-mark">K</span> KiMitHoz?</a>
       <div class="auth-art-copy"><span class="eyebrow">A JÓ ESTÉK ITT KEZDŐDNEK</span><h1>Az élmény<br>közös.<br><em>A szervezés is.</em></h1><p>Találd meg, ki jön. Oszd el, ki mit hoz. A többit bízd az estére.</p></div>
       <div class="art-note"><span>✳</span><div><strong>Ez már alakul!</strong><small>Hétvégén találkozunk 🎉</small></div><div class="avatar-stack"><i>A</i><i>M</i><i>+</i></div></div>
       <span class="art-orbit orbit-one"></span><span class="art-orbit orbit-two"></span>
@@ -38,7 +38,8 @@
   <!-- Bejelentkezés után a navigáció és a JavaScript által rajzolt nézetek. -->
   <div id="app-shell" class="app-shell hidden">
     <aside class="sidebar">
-      <a class="brand" href="home"><span class="brand-mark">K</span>KiMitHoz?</a>
+      <a class="brand" href="home"><span class="brand-mark">K</span>KiMitHoz? v2.0</a>
+      <h1 class="sidebar-title">BETA</h1>
       <div class="side-label">MENÜ</div>
       <nav class="main-nav">
         <button class="nav-link active" data-view="home"><span><i class="fa-regular fa-home"></i></span> Áttekintés</button>
@@ -54,7 +55,7 @@
       <div class="sidebar-bottom"><div class="sidebar-tip"><span>✦</span><strong>Együtt egyszerűbb</strong><p>A közös listán mindenki látja, ki mit hoz.</p></div><button id="sidebar-profile" class="user-chip"><span id="sidebar-avatar" class="avatar">K</span><span><strong id="sidebar-name">Vendég</strong><small id="sidebar-username">@vendeg</small></span><span class="more">···</span></button></div>
     </aside>
     <section class="main-area">
-      <header class="topbar"><div class="mobile-brand"><span class="brand-mark">k</span> kimithoz</div><div class="breadcrumb" id="breadcrumb">Áttekintés <span>/</span> Neked</div><div class="top-actions"><button class="icon-button" id="theme-toggle" aria-label="Téma váltása">☼</button><button class="icon-button notification-top" data-view="notifications" aria-label="Értesítések">♧<i id="notification-dot" class="notification-dot hidden"></i></button><button id="create-party-top" class="button button-dark top-create">＋ <span>Új buli</span></button><button id="mobile-menu" class="icon-button mobile-menu">☰</button></div></header>
+      <header class="topbar"><div class="mobile-brand"><span class="brand-mark">k</span> kimithoz</div><div class="breadcrumb" id="breadcrumb">Áttekintés <span>/</span> Neked</div><div class="top-actions"><button class="icon-button" id="theme-toggle" aria-label="Téma váltása"><i class="fa-regular fa-moon"></i></button><button class="icon-button notification-top" data-view="notifications" aria-label="Értesítések"><i class="fa-regular fa-bell"></i><i id="notification-dot" class="notification-dot hidden"></i></button><button id="create-party-top" class="button button-dark top-create">＋ <span>Új buli</span></button><button id="mobile-menu" class="icon-button mobile-menu">☰</button></div></header>
       <main class="page-content" id="page-content"></main>
     </section>
   </div>

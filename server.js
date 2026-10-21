@@ -51,7 +51,7 @@ async function start() {
   if (!process.env.JWT_SECRET) throw new Error('Hiányzik a JWT_SECRET környezeti változó.');
   await mongoose.connect(process.env.MONGODB_URI);
   console.log('MongoDB kapcsolat létrejött.');
-  app.listen(port, () => console.log(`Kimihez elérhető: http://localhost:${port}`));
+  app.listen(port, () => console.log(`KiMitHoz? elérhető: http://localhost:${port}`));
 }
 
 start().catch((error) => {
