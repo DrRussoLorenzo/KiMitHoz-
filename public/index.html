@@ -1,0 +1,66 @@
+<!doctype html>
+<html lang="hu">
+<head>
+  <meta charset="UTF-8"><meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <meta name="theme-color" content="#f8f7f4"><meta name="description" content="KimitHoz — szervezz bulit, hívd meg a barátaid, és tervezzetek együtt.">
+  <title>KimitHoz — együtt jobb</title>
+  <link rel="icon" type="image/x-icon" href="/images/favicon.ico">
+  <link rel="preconnect" href="https://fonts.googleapis.com"><link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=DM+Sans:wght@400;500;600;700&family=Manrope:wght@400;500;600;700;800&display=swap" rel="stylesheet">
+  <link rel="stylesheet" href="https://unpkg.com/maplibre-gl@5.6.1/dist/maplibre-gl.css">
+  <link rel="stylesheet" href="/styles.css">
+  <script src="https://kit.fontawesome.com/6400879559.js" crossorigin="anonymous"></script>
+</head>
+<body>
+  <!-- A bejelentkezés és a regisztráció az alkalmazás belépőképernyője. -->
+  <div id="toast" class="toast" role="status"></div>
+  <main id="auth-screen" class="auth-screen">
+    <section class="auth-art">
+      <a class="brand brand-light" href="#"><span class="brand-mark">k</span> kimithoz</a>
+      <div class="auth-art-copy"><span class="eyebrow">A JÓ ESTÉK ITT KEZDŐDNEK</span><h1>Az élmény<br>közös.<br><em>A szervezés is.</em></h1><p>Találd meg, ki jön. Oszd el, ki mit hoz. A többit bízd az estére.</p></div>
+      <div class="art-note"><span>✳</span><div><strong>Ez már alakul!</strong><small>Hétvégén találkozunk 🎉</small></div><div class="avatar-stack"><i>A</i><i>M</i><i>+</i></div></div>
+      <span class="art-orbit orbit-one"></span><span class="art-orbit orbit-two"></span>
+    </section>
+    <section class="auth-panel"><div class="auth-form-wrap">
+      <span class="eyebrow" id="auth-eyebrow">ÜDV ÚJRA ITTHON</span><h2 id="auth-title">Jó, hogy itt vagy.</h2><p class="muted" id="auth-subtitle">Jelentkezz be, és nézd meg, mi készül.</p>
+      <div class="auth-tabs"><button class="active" data-auth="login">Bejelentkezés</button><button data-auth="register">Fiók létrehozása</button></div>
+      <form id="auth-form">
+        <label id="nickname-field" class="field hidden">Becenév<input name="nickname" placeholder="Hogy szólítsunk?" autocomplete="name"></label>
+        <label id="username-field" class="field hidden">Felhasználónév<input name="username" placeholder="pl. anna_k" autocomplete="username"></label>
+        <label id="age-field" class="field hidden">Életkor<input name="age" type="number" placeholder="Hány éves vagy?" min="16" max="120"></label>
+        <label class="field">E-mail-cím<input name="email" type="email" placeholder="te@email.hu" autocomplete="email" required></label>
+        <label class="field">Jelszó<input name="password" type="password" placeholder="Legalább 8 karakter" autocomplete="current-password" minlength="8" required></label>
+        <button class="button button-dark full" type="submit" id="auth-submit">Bejelentkezés <span>→</span></button>
+      </form><p class="terms">A folytatással elfogadod a közösségi szabályokat.</p>
+    </div><span class="auth-footer">© 2026 Kimihez · Jó emberek, jó esték.</span></section>
+  </main>
+
+  <!-- Bejelentkezés után a navigáció és a JavaScript által rajzolt nézetek. -->
+  <div id="app-shell" class="app-shell hidden">
+    <aside class="sidebar">
+      <a class="brand" href="home"><span class="brand-mark">K</span>KiMitHoz?</a>
+      <div class="side-label">MENÜ</div>
+      <nav class="main-nav">
+        <button class="nav-link active" data-view="home"><span><i class="fa-regular fa-home"></i></span> Áttekintés</button>
+        <button class="nav-link" data-view="parties"><span><i class="fa-regular fa-calendar"></i></span> Bulijaim</button>
+        <button class="nav-link" data-view="discover"><span><i class="fa-solid fa-binoculars"></i></span> Felfedezés</button>
+        <button class="nav-link" data-view="friends"><span><i class="fa-solid fa-users"></i></span> Barátok</button>
+      </nav>
+      <div class="side-label side-label-spaced">SZEMÉLYES</div>
+      <nav class="main-nav">
+        <button class="nav-link" data-view="notifications"><span><i class="fa-regular fa-bell"></i></span> Értesítések <b id="notification-count" class="nav-count hidden">0</b></button>
+        <button class="nav-link" data-view="profile"><span><i class="fa-regular fa-user"></i></span> Profilom</button>
+      </nav>
+      <div class="sidebar-bottom"><div class="sidebar-tip"><span>✦</span><strong>Együtt egyszerűbb</strong><p>A közös listán mindenki látja, ki mit hoz.</p></div><button id="sidebar-profile" class="user-chip"><span id="sidebar-avatar" class="avatar">K</span><span><strong id="sidebar-name">Vendég</strong><small id="sidebar-username">@vendeg</small></span><span class="more">···</span></button></div>
+    </aside>
+    <section class="main-area">
+      <header class="topbar"><div class="mobile-brand"><span class="brand-mark">k</span> kimithoz</div><div class="breadcrumb" id="breadcrumb">Áttekintés <span>/</span> Neked</div><div class="top-actions"><button class="icon-button" id="theme-toggle" aria-label="Téma váltása">☼</button><button class="icon-button notification-top" data-view="notifications" aria-label="Értesítések">♧<i id="notification-dot" class="notification-dot hidden"></i></button><button id="create-party-top" class="button button-dark top-create">＋ <span>Új buli</span></button><button id="mobile-menu" class="icon-button mobile-menu">☰</button></div></header>
+      <main class="page-content" id="page-content"></main>
+    </section>
+  </div>
+  <!-- A modális ablakok és az alkalmazás klienskódjának célpontja. -->
+  <div id="modal-root"></div>
+  <script src="https://unpkg.com/maplibre-gl@5.6.1/dist/maplibre-gl.js" defer></script>
+  <script src="/app.js" defer></script>
+</body>
+</html>
