@@ -5,7 +5,17 @@ const userSchema = new mongoose.Schema({
   email: { type: String, required: true, unique: true, lowercase: true, trim: true },
   username: { type: String, required: true, unique: true, lowercase: true, trim: true, minlength: 3, maxlength: 24 },
   nickname: { type: String, required: true, trim: true, maxlength: 40 },
+  role: { type: String, enum: ['user', 'admin'], default: 'user', required: true },
+  isBanned: { type: Boolean, default: false },
+  banReason: { type: String, default: '', maxlength: 240 },
+  bannedAt: { type: Date },
   age: { type: Number, min: 16, max: 120 },
+  verificationStatus: { type: String, enum: ['pending', 'approved', 'rejected'], default: 'approved' },
+  verificationReviewedAt: { type: Date },
+  verificationDocuments: {
+    identityDocument: { type: String, select: false },
+    facePhoto: { type: String, select: false }
+  },
   passwordHash: { type: String, required: true, select: false },
   avatar: { type: String, default: '' },
   bio: { type: String, default: '', maxlength: 240 },
@@ -17,6 +27,7 @@ const userSchema = new mongoose.Schema({
     notifications: { type: Boolean, default: true }
   }
 }, { timestamps: true });
+userSchema.index({ role: 1 }, { unique: true, partialFilterExpression: { role: 'admin' } });
 
 // Bulik, résztvevők és a közösen hozott tételek.
 const partySchema = new mongoose.Schema({
@@ -33,6 +44,7 @@ const partySchema = new mongoose.Schema({
     lng: { type: Number, min: -180, max: 180 }
   },
   ticketPrice: { type: Number, default: 0, min: 0 },
+  minAge: { type: Number, default: 16, min: 16, max: 120 },
   maxGuests: { type: Number, default: 30, min: 2, max: 1000 },
   members: [{ user: { type: mongoose.Schema.Types.ObjectId, ref: 'User' }, status: { type: String, enum: ['invited', 'going', 'declined'], default: 'invited' } }],
   contributions: [{ user: { type: mongoose.Schema.Types.ObjectId, ref: 'User' }, name: { type: String, required: true, maxlength: 100 }, quantity: { type: String, default: '1', maxlength: 30 }, price: { type: Number, default: 0, min: 0 }, category: { type: String, enum: ['étel', 'ital', 'egyéb'], default: 'egyéb' }, icon: { type: String, default: '✳', maxlength: 2048 } }]

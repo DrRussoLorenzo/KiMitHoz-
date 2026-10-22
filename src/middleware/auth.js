@@ -8,6 +8,8 @@ module.exports = async function authenticate(req, res, next) {
     const payload = jwt.verify(token, process.env.JWT_SECRET);
     const user = await User.findById(payload.sub);
     if (!user) return res.status(401).json({ message: 'A felhasználói fiók nem található.' });
+    if (user.isBanned && user.role !== 'admin') return res.status(403).json({ message: user.banReason ? `A fiókodat kitiltották: ${user.banReason}` : 'A fiókodat kitiltották.' });
+    if (user.role !== 'admin' && user.verificationStatus !== 'approved') return res.status(403).json({ message: 'A fiókod még nem kapta meg az adminisztrátori jóváhagyást.' });
     req.user = user;
     next();
   } catch (_error) {

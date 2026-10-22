@@ -27,7 +27,9 @@
       <form id="auth-form">
         <label id="nickname-field" class="field hidden">Becenév<input name="nickname" placeholder="Hogy szólítsunk?" autocomplete="name"></label>
         <label id="username-field" class="field hidden">Felhasználónév<input name="username" placeholder="pl. anna_k" autocomplete="username"></label>
-        <label id="age-field" class="field hidden">Életkor<input name="age" type="number" placeholder="Hány éves vagy?" min="16" max="120"></label>
+        <label id="age-field" class="field hidden">Életkor<input name="age" type="number" placeholder="Hány éves vagy?" min="16" max="120" step="1"></label>
+        <label id="identity-document-field" class="field hidden">Személyi igazolvány képe<input name="identityDocument" type="file" accept="image/jpeg,image/png,image/webp"><small>JPG, PNG vagy WebP, legfeljebb 5 MB.</small></label>
+        <label id="face-photo-field" class="field hidden">Saját arckép<input name="facePhoto" type="file" accept="image/jpeg,image/png,image/webp"><small>JPG, PNG vagy WebP, legfeljebb 5 MB.</small></label>
         <label class="field">E-mail-cím<input name="email" type="email" placeholder="te@email.hu" autocomplete="email" required></label>
         <label class="field">Jelszó<input name="password" type="password" placeholder="Legalább 8 karakter" autocomplete="current-password" minlength="8" required></label>
         <button class="button button-dark full" type="submit" id="auth-submit">Bejelentkezés <span>→</span></button>
@@ -51,6 +53,7 @@
       <nav class="main-nav">
         <button class="nav-link" data-view="notifications"><span><i class="fa-regular fa-bell"></i></span> Értesítések <b id="notification-count" class="nav-count hidden">0</b></button>
         <button class="nav-link" data-view="profile"><span><i class="fa-regular fa-user"></i></span> Profilom</button>
+        <a id="admin-nav-link" class="nav-link hidden" href="/admin.html"><span><i class="fa-solid fa-shield-halved"></i></span> Admin panel</a>
       </nav>
       <div class="sidebar-bottom"><div class="sidebar-tip"><span>✦</span><strong>Együtt egyszerűbb</strong><p>A közös listán mindenki látja, ki mit hoz.</p></div><button id="sidebar-profile" class="user-chip"><span id="sidebar-avatar" class="avatar">K</span><span><strong id="sidebar-name">Vendég</strong><small id="sidebar-username">@vendeg</small></span><span class="more">···</span></button></div>
     </aside>
