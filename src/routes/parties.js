@@ -6,6 +6,7 @@ const multer = require('multer');
 const auth = require('../middleware/auth');
 const { Party, User, Notification, PartyMessage } = require('../models');
 const { ARCHIVE_DELAY_MS, archiveExpiredParties } = require('../services/partyArchive');
+const { CLOUDINARY_PREFIX, destroyImage, isCloudinaryId, sendAuthenticatedImage, uploadImage } = require('../services/cloudinary');
 const emojiOnly = /^(?:(?:\p{Extended_Pictographic}(?:\uFE0F|\p{Emoji_Modifier})?(?:\u200D\p{Extended_Pictographic}(?:\uFE0F|\p{Emoji_Modifier})?)*)|(?:\p{Regional_Indicator}{2})|(?:[0-9#*]\uFE0F?\u20E3))$/u;
 
 const iconValue = (value) => {
@@ -16,13 +17,9 @@ const iconValue = (value) => {
 
 router.use(auth);
 
-const galleryDirectory = path.join(__dirname, '../../private/party-gallery');
 const galleryExtensions = { 'image/jpeg': '.jpg', 'image/png': '.png', 'image/gif': '.gif', 'image/webp': '.webp' };
 const galleryUpload = multer({
-  storage: multer.diskStorage({
-    destination: (_req, _file, callback) => fs.mkdir(galleryDirectory, { recursive: true }, (error) => callback(error, galleryDirectory)),
-    filename: (_req, file, callback) => callback(null, `${crypto.randomBytes(24).toString('hex')}${galleryExtensions[file.mimetype] || ''}`)
-  }),
+  storage: multer.memoryStorage(),
   limits: { fileSize: 5 * 1024 * 1024, files: 1 },
   fileFilter: (_req, file, callback) => {
     if (galleryExtensions[file.mimetype]) return callback(null, true);
@@ -33,15 +30,16 @@ const receiveGalleryImage = (req, res, next) => galleryUpload.single('image')(re
   if (error?.code === 'LIMIT_FILE_SIZE') error.status = 413;
   next(error);
 });
-const removeGalleryFile = (filePath) => filePath ? fs.promises.unlink(filePath).catch(() => {}) : Promise.resolve();
+const removeGalleryAsset = (image) => isCloudinaryId(image?.filename)
+  ? destroyImage(image.filename.slice(CLOUDINARY_PREFIX.length), 'authenticated').catch(() => {})
+  : image?.filename && path.basename(image.filename) === image.filename
+    ? fs.promises.unlink(path.join(__dirname, '../../private/party-gallery', image.filename)).catch(() => {})
+    : Promise.resolve();
 const canAccessGallery = (party, user) => String(party.host?._id || party.host) === String(user._id)
   || party.members.some((member) => String(member.user?._id || member.user) === String(user._id) && member.status === 'going');
 
 const coverUpload = multer({
-  storage: multer.diskStorage({
-    destination: path.join(__dirname, '../../public/uploads'),
-    filename: (_req, file, callback) => callback(null, `${crypto.randomBytes(16).toString('hex')}${path.extname(file.originalname).toLowerCase()}`)
-  }),
+  storage: multer.memoryStorage(),
   limits: { fileSize: 5 * 1024 * 1024, files: 1 },
   fileFilter: (_req, file, callback) => {
     const validTypes = { 'image/jpeg': '.jpg', 'image/png': '.png', 'image/gif': '.gif', 'image/webp': '.webp' };
@@ -58,7 +56,9 @@ const validCoverImage = (value) => {
 
 router.post('/cover-image', coverUpload.single('image'), (req, res) => {
   if (!req.file) return res.status(400).json({ message: 'Válassz ki egy képfájlt.' });
-  res.status(201).json({ imageUrl: `/uploads/${req.file.filename}` });
+  uploadImage(req.file.buffer, { folder: 'kimithoz/covers' })
+    .then(({ secureUrl }) => res.status(201).json({ imageUrl: secureUrl }))
+    .catch((error) => res.status(error.status || 502).json({ message: error.status ? error.message : 'A borítókép feltöltése nem sikerült.' }));
 });
 
 // A listákhoz a frontend által megjelenített publikus felhasználói mezőket töltjük be.
@@ -123,7 +123,7 @@ router.get('/archive', async (req, res, next) => {
         { host: req.user._id },
         { members: { $elemMatch: { user: req.user._id, status: 'going' } } }
       ]
-    }).select('title coverImage date location host galleryImages._id galleryImages.uploadedAt galleryImages.uploadedBy +galleryImages.filename')
+    }).select('title coverImage date location host galleryImages._id galleryImages.uploadedAt galleryImages.uploadedBy galleryImages.format galleryImages.version +galleryImages.filename')
       .populate('host', 'nickname')
       .sort({ date: -1 })
       .lean();
@@ -135,42 +135,46 @@ router.get('/archive', async (req, res, next) => {
 });
 
 router.post('/:id/gallery', receiveGalleryImage, async (req, res, next) => {
+  let uploadedAsset;
   try {
     await archiveExpiredParties();
     const party = await Party.findById(req.params.id);
-    if (!party) { await removeGalleryFile(req.file?.path); return res.status(404).json({ message: 'A buli nem található.' }); }
-    if (!canAccessGallery(party, req.user)) { await removeGalleryFile(req.file?.path); return res.status(403).json({ message: 'A galériát csak a buli résztvevői használhatják.' }); }
+    if (!party) return res.status(404).json({ message: 'A buli nem található.' });
+    if (!canAccessGallery(party, req.user)) return res.status(403).json({ message: 'A galériát csak a buli résztvevői használhatják.' });
     if (party.isArchived || Date.now() >= new Date(party.date).getTime() + ARCHIVE_DELAY_MS) {
-      await removeGalleryFile(req.file?.path);
       return res.status(410).json({ message: 'A buli galériája már archiválva van, új képet nem lehet feltölteni.' });
     }
     if (Date.now() < new Date(party.date).getTime()) {
-      await removeGalleryFile(req.file?.path);
       return res.status(400).json({ message: 'Képet a buli napjától lehet feltölteni.' });
     }
     if (!req.file) return res.status(400).json({ message: 'Válassz ki egy képet a feltöltéshez.' });
     if (party.galleryImages.length >= 30) {
-      await removeGalleryFile(req.file.path);
       return res.status(400).json({ message: 'Egy buli galériájába legfeljebb 30 kép tölthető fel.' });
     }
-    party.galleryImages.push({ filename: req.file.filename, uploadedBy: req.user._id });
+    uploadedAsset = await uploadImage(req.file.buffer, { folder: `kimithoz/party-gallery/${party._id}`, type: 'authenticated' });
+    party.galleryImages.push({ filename: `${CLOUDINARY_PREFIX}${uploadedAsset.publicId}`, format: uploadedAsset.format, version: uploadedAsset.version, uploadedBy: req.user._id });
     await party.save();
     res.status(201).json({ message: 'A kép bekerült a buli galériájába.', imageId: party.galleryImages[party.galleryImages.length - 1]._id });
   } catch (error) {
-    await removeGalleryFile(req.file?.path);
+    if (uploadedAsset?.publicId) await destroyImage(uploadedAsset.publicId, 'authenticated').catch(() => {});
     next(error);
   }
 });
 
 router.get('/:id/gallery/:imageId/image', async (req, res, next) => {
   try {
-    const party = await Party.findById(req.params.id).select('+galleryImages.filename');
+    const party = await Party.findById(req.params.id).select('host members galleryImages._id galleryImages.format galleryImages.version +galleryImages.filename');
     if (!party) return res.status(404).json({ message: 'A buli nem található.' });
     if (!canAccessGallery(party, req.user)) return res.status(403).json({ message: 'A galériát csak a buli résztvevői láthatják.' });
     const image = party.galleryImages.id(req.params.imageId);
-    if (!image || !image.filename || path.basename(image.filename) !== image.filename) return res.status(404).json({ message: 'A kép nem található.' });
+    if (!image || !image.filename) return res.status(404).json({ message: 'A kép nem található.' });
+    if (isCloudinaryId(image.filename)) {
+      await sendAuthenticatedImage(res, image.filename.slice(CLOUDINARY_PREFIX.length), image);
+      return;
+    }
+    if (path.basename(image.filename) !== image.filename) return res.status(404).json({ message: 'A kép nem található.' });
     res.set('Cache-Control', 'private, no-store');
-    res.sendFile(path.join(galleryDirectory, image.filename), (error) => {
+    res.sendFile(path.join(__dirname, '../../private/party-gallery', image.filename), (error) => {
       if (error && !res.headersSent) {
         if (error.code === 'ENOENT') return res.status(404).json({ message: 'A kép fájlja nem található a szerveren.' });
         next(error);
@@ -299,7 +303,7 @@ router.delete('/:id', async (req, res, next) => {
     if (!party) return res.status(404).json({ message: 'A buli nem található.' });
     if (!party.host.equals(req.user._id)) return res.status(403).json({ message: 'Csak a házigazda törölheti ezt a bulit.' });
     if (typeof req.body.confirmation !== 'string' || req.body.confirmation.trim() !== party.title) return res.status(400).json({ message: 'A törléshez írd be pontosan a buli nevét.' });
-    await Promise.all(party.galleryImages.map((image) => removeGalleryFile(path.join(galleryDirectory, path.basename(image.filename)))));
+    await Promise.all(party.galleryImages.map(removeGalleryAsset));
     await Notification.deleteMany({ party: party._id });
     await PartyMessage.deleteMany({ party: party._id });
     await party.deleteOne();

@@ -1,18 +1,32 @@
 process.env.JWT_SECRET ||= 'test-secret-for-gallery-tests';
 
-const { afterAll, afterEach, beforeAll, describe, expect, it } = require('@jest/globals');
-const fs = require('fs');
-const path = require('path');
+jest.mock('../src/services/cloudinary', () => ({
+  CLOUDINARY_PREFIX: 'cloudinary:',
+  uploadImage: jest.fn(),
+  destroyImage: jest.fn().mockResolvedValue({ result: 'ok' }),
+  isCloudinaryId: jest.fn((value) => typeof value === 'string' && value.startsWith('cloudinary:')),
+  toCloudinaryId: jest.fn((value) => value.startsWith('cloudinary:') ? value.slice('cloudinary:'.length) : value),
+  sendAuthenticatedImage: jest.fn(async (response) => response.type('image/png').send(Buffer.from('mock cloud image')))
+}));
+
+const { afterAll, afterEach, beforeAll, beforeEach, describe, expect, it } = require('@jest/globals');
 const jwt = require('jsonwebtoken');
 const getRequest = require('./helpers/getRequest');
 const { clearTestDatabase, connectTestDatabase, disconnectTestDatabase } = require('./helpers/database');
 const { Party, User } = require('../src/models');
 const request = require('supertest');
 const { app } = require('../server');
+const { uploadImage, sendAuthenticatedImage } = require('../src/services/cloudinary');
 
 describe('Szerver és adatbázis', () => {
   beforeAll(async () => {
     await connectTestDatabase();
+  });
+
+  beforeEach(() => {
+    uploadImage.mockReset();
+    uploadImage.mockResolvedValue({ publicId: 'kimithoz/party-gallery/mock-photo', secureUrl: 'https://res.cloudinary.com/test/image/upload/mock.jpg', format: 'png', version: 123 });
+    sendAuthenticatedImage.mockClear();
   });
 
   afterEach(async () => {
@@ -133,21 +147,64 @@ describe('Szerver és adatbázis', () => {
       .attach('image', png, { filename: 'photo.png', contentType: 'image/png' })
       .expect(201);
     const savedParty = await Party.findById(party._id).select('+galleryImages.filename');
-    const filename = savedParty.galleryImages[0].filename;
+    expect(savedParty.galleryImages[0].filename).toBe('cloudinary:kimithoz/party-gallery/mock-photo');
+    expect(uploadImage).toHaveBeenCalledWith(png, { folder: `kimithoz/party-gallery/${party._id}`, type: 'authenticated' });
 
-    try {
-      await request(app)
-        .get(`/api/parties/${party._id}/gallery/${upload.body.imageId}/image`)
-        .set('Authorization', `Bearer ${token}`)
-        .expect('Content-Type', /image\/png/)
-        .expect(200);
+    await request(app)
+      .get(`/api/parties/${party._id}/gallery/${upload.body.imageId}/image`)
+      .set('Authorization', `Bearer ${token}`)
+      .expect('Content-Type', /image\/png/)
+      .expect(200);
+    expect(sendAuthenticatedImage).toHaveBeenCalled();
 
-      await request(app)
-        .get(`/api/parties/${party._id}/gallery/${upload.body.imageId}/image`)
-        .set('Authorization', `Bearer ${outsiderToken}`)
-        .expect(403);
-    } finally {
-      await fs.promises.unlink(path.join(__dirname, '../private/party-gallery', filename)).catch(() => {});
-    }
+    await request(app)
+      .get(`/api/parties/${party._id}/gallery/${upload.body.imageId}/image`)
+      .set('Authorization', `Bearer ${outsiderToken}`)
+      .expect(403);
+  });
+
+  it('a buli borítóképét Cloudinarybe tölti fel', async () => {
+    const user = await User.create({
+      email: 'borito@example.com',
+      username: 'borito_user',
+      nickname: 'Borító teszt',
+      passwordHash: 'test-password-hash'
+    });
+    const token = jwt.sign({ sub: user._id.toString() }, process.env.JWT_SECRET);
+    const png = Buffer.from('iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mP8/x8AAwMCAO+/l9sAAAAASUVORK5CYII=', 'base64');
+
+    const response = await request(app)
+      .post('/api/parties/cover-image')
+      .set('Authorization', `Bearer ${token}`)
+      .attach('image', png, { filename: 'cover.png', contentType: 'image/png' })
+      .expect(201);
+
+    expect(response.body.imageUrl).toMatch(/^https:\/\/res\.cloudinary\.com\//);
+    expect(uploadImage).toHaveBeenCalledWith(png, { folder: 'kimithoz/covers' });
+  });
+
+  it('a regisztrációs dokumentumokat privát Cloudinary-tárhelyre tölti fel', async () => {
+    const png = Buffer.from('iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mP8/x8AAwMCAO+/l9sAAAAASUVORK5CYII=', 'base64');
+    uploadImage
+      .mockResolvedValueOnce({ publicId: 'kimithoz/verification/id-photo', format: 'png', version: 456 })
+      .mockResolvedValueOnce({ publicId: 'kimithoz/verification/face-photo', format: 'png', version: 789 });
+
+    await request(app)
+      .post('/api/auth/register')
+      .field('email', 'cloudinary-user@example.com')
+      .field('username', 'cloudinary_user')
+      .field('nickname', 'Cloudinary')
+      .field('age', '25')
+      .field('password', 'secure-password')
+      .attach('identityDocument', png, { filename: 'id.png', contentType: 'image/png' })
+      .attach('facePhoto', png, { filename: 'face.png', contentType: 'image/png' })
+      .expect(201);
+
+    const savedUser = await User.findOne({ email: 'cloudinary-user@example.com' })
+      .select('+verificationDocuments.identityDocument +verificationDocuments.facePhoto');
+    expect(savedUser.verificationDocuments.identityDocument).toBe('cloudinary:kimithoz/verification/id-photo');
+    expect(savedUser.verificationDocuments.facePhoto).toBe('cloudinary:kimithoz/verification/face-photo');
+    expect(uploadImage).toHaveBeenCalledTimes(2);
+    expect(uploadImage).toHaveBeenNthCalledWith(1, png, { folder: 'kimithoz/verification', type: 'authenticated' });
   });
 });

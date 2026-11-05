@@ -41,7 +41,9 @@ const partySchema = new mongoose.Schema({
   isArchived: { type: Boolean, default: false, index: true },
   archivedAt: { type: Date },
   galleryImages: [{
-    filename: { type: String, required: true, select: false },
+    filename: { type: String, select: false },
+    format: { type: String, select: false },
+    version: { type: Number, select: false },
     uploadedBy: { type: mongoose.Schema.Types.ObjectId, ref: 'User', required: true },
     uploadedAt: { type: Date, default: Date.now }
   }],

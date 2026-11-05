@@ -5,6 +5,7 @@ const path = require('path');
 const auth = require('../middleware/auth');
 const requireAdmin = require('../middleware/admin');
 const { User, Party, Notification, PartyMessage } = require('../models');
+const { destroyImage, isCloudinaryId, sendAuthenticatedImage, toCloudinaryId } = require('../services/cloudinary');
 
 router.use(auth, requireAdmin);
 const userFields = 'email username nickname age avatar bio role isBanned banReason bannedAt settings friends friendRequests createdAt';
@@ -26,10 +27,15 @@ router.get('/verification-requests/:id/images/:kind', async (req, res, next) => 
     if (!documentKey) return res.status(404).json({ message: 'A kép nem található.' });
     const user = await User.findOne({ _id: req.params.id, verificationStatus: 'pending' })
       .select('+verificationDocuments.identityDocument +verificationDocuments.facePhoto');
-    const filename = user?.verificationDocuments?.[documentKey];
-    if (!filename || path.basename(filename) !== filename) return res.status(404).json({ message: 'A kép nem található.' });
+    const storedImage = user?.verificationDocuments?.[documentKey];
+    if (isCloudinaryId(storedImage)) {
+      res.set('Cache-Control', 'private, no-store');
+      await sendAuthenticatedImage(res, toCloudinaryId(storedImage));
+      return;
+    }
+    if (!storedImage || path.basename(storedImage) !== storedImage) return res.status(404).json({ message: 'A kép nem található.' });
     res.set('Cache-Control', 'private, no-store');
-    res.sendFile(path.join(__dirname, '../../private/verification', filename), (error) => {
+    res.sendFile(path.join(__dirname, '../../private/verification', storedImage), (error) => {
       if (error && !res.headersSent) {
         if (error.code === 'ENOENT') return res.status(404).json({ message: 'A feltöltött kép fájlja nem található a szerveren.' });
         next(error);
@@ -45,14 +51,18 @@ router.post('/verification-requests/:id/decision', async (req, res, next) => {
     const user = await User.findOne({ _id: req.params.id, role: 'user', verificationStatus: 'pending' })
       .select('+verificationDocuments.identityDocument +verificationDocuments.facePhoto');
     if (!user) return res.status(404).json({ message: 'A függőben lévő regisztráció nem található.' });
-    const filenames = [user.verificationDocuments?.identityDocument, user.verificationDocuments?.facePhoto]
-      .filter((filename) => typeof filename === 'string' && path.basename(filename) === filename);
+    const storedImages = [user.verificationDocuments?.identityDocument, user.verificationDocuments?.facePhoto]
+      .filter((storedImage) => typeof storedImage === 'string');
     user.verificationStatus = decision;
     user.verificationReviewedAt = new Date();
     user.verificationDocuments = { identityDocument: undefined, facePhoto: undefined };
     await user.save();
     const verificationDirectory = path.join(__dirname, '../../private/verification');
-    await Promise.all(filenames.map((filename) => fs.promises.unlink(path.join(verificationDirectory, filename)).catch(() => {})));
+    await Promise.all(storedImages.map((storedImage) => isCloudinaryId(storedImage)
+      ? destroyImage(toCloudinaryId(storedImage), 'authenticated').catch(() => {})
+      : path.basename(storedImage) === storedImage
+        ? fs.promises.unlink(path.join(verificationDirectory, storedImage)).catch(() => {})
+        : Promise.resolve()));
     res.json({ message: `A regisztráció ${decision === 'approved' ? 'jóváhagyva' : 'elutasítva'}.` });
   } catch (error) { next(error); }
 });
@@ -139,9 +149,9 @@ router.delete('/users/:id', async (req, res, next) => {
     const partyIds = hosted.map((party) => party._id);
     await Promise.all(hosted.flatMap((party) => party.galleryImages.map((image) => {
       const filename = image.filename;
+      if (isCloudinaryId(filename)) return destroyImage(toCloudinaryId(filename), 'authenticated').catch(() => {});
       return typeof filename === 'string' && path.basename(filename) === filename
-        ? fs.promises.unlink(path.join(__dirname, '../../private/party-gallery', filename)).catch(() => {})
-        : Promise.resolve();
+        ? fs.promises.unlink(path.join(__dirname, '../../private/party-gallery', filename)).catch(() => {}) : Promise.resolve();
     })));
     await Promise.all([
       Party.deleteMany({ _id: { $in: partyIds } }),
@@ -150,9 +160,13 @@ router.delete('/users/:id', async (req, res, next) => {
       User.updateMany({ _id: { $ne: user._id } }, { $pull: { friends: user._id, friendRequests: user._id } }),
       Party.updateMany({ host: { $ne: user._id } }, { $pull: { members: { user: user._id }, contributions: { user: user._id } } })
     ]);
-    const verificationFiles = [user.verificationDocuments?.identityDocument, user.verificationDocuments?.facePhoto]
-      .filter((filename) => typeof filename === 'string' && path.basename(filename) === filename);
-    await Promise.all(verificationFiles.map((filename) => fs.promises.unlink(path.join(__dirname, '../../private/verification', filename)).catch(() => {})));
+    const verificationImages = [user.verificationDocuments?.identityDocument, user.verificationDocuments?.facePhoto]
+      .filter((storedImage) => typeof storedImage === 'string');
+    await Promise.all(verificationImages.map((storedImage) => isCloudinaryId(storedImage)
+      ? destroyImage(toCloudinaryId(storedImage), 'authenticated').catch(() => {})
+      : path.basename(storedImage) === storedImage
+        ? fs.promises.unlink(path.join(__dirname, '../../private/verification', storedImage)).catch(() => {})
+        : Promise.resolve()));
     await user.deleteOne();
     res.json({ message: 'A felhasználó és kapcsolódó adatai törölve.' });
   } catch (error) { next(error); }
@@ -194,9 +208,9 @@ router.delete('/parties/:id', async (req, res, next) => {
     if (!party) return res.status(404).json({ message: 'A buli nem található.' });
     await Promise.all(party.galleryImages.map((image) => {
       const filename = image.filename;
+      if (isCloudinaryId(filename)) return destroyImage(toCloudinaryId(filename), 'authenticated').catch(() => {});
       return typeof filename === 'string' && path.basename(filename) === filename
-        ? fs.promises.unlink(path.join(__dirname, '../../private/party-gallery', filename)).catch(() => {})
-        : Promise.resolve();
+        ? fs.promises.unlink(path.join(__dirname, '../../private/party-gallery', filename)).catch(() => {}) : Promise.resolve();
     }));
     await party.deleteOne();
     await Promise.all([Notification.deleteMany({ party: party._id }), PartyMessage.deleteMany({ party: party._id })]);
