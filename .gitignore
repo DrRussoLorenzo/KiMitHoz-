@@ -1,5 +1,6 @@
 node_modules/
 .env
 private/verification/
+private/party-gallery/
 npm-debug.log*
 .DS_Store

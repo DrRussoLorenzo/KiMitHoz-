@@ -15,6 +15,7 @@ const notificationRoutes = require('./src/routes/notifications');
 const adminRoutes = require('./src/routes/admin');
 const bcrypt = require('bcryptjs');
 const { User } = require('./src/models');
+const { archiveExpiredParties } = require('./src/services/partyArchive');
 
 const app = express();
 const port = process.env.PORT || 3000;
@@ -56,6 +57,11 @@ async function start() {
   if (!process.env.JWT_SECRET) throw new Error('Hiányzik a JWT_SECRET környezeti változó.');
   await mongoose.connect(process.env.MONGODB_URI);
   await User.init();
+  await archiveExpiredParties();
+  const archiveTimer = setInterval(() => {
+    archiveExpiredParties().catch((error) => console.error('Nem sikerült archiválni a lejárt bulikat:', error.message));
+  }, 60 * 60 * 1000);
+  archiveTimer.unref();
   console.log('MongoDB kapcsolat létrejött.');
   if (Boolean(process.env.ADMIN_EMAIL) !== Boolean(process.env.ADMIN_PASSWORD)) throw new Error('Az admin fiók beállításához az ADMIN_EMAIL és ADMIN_PASSWORD változót együtt add meg.');
   if (process.env.ADMIN_EMAIL && process.env.ADMIN_PASSWORD) {
@@ -80,10 +86,14 @@ async function start() {
   } else {
     console.warn('Az admin fiók nincs beállítva. A létrehozáshoz konfiguráld az ADMIN_EMAIL és ADMIN_PASSWORD változókat.');
   }
-  app.listen(port, () => console.log(`KiMitHoz? elérhető: http://localhost:${port}`));
+  return app.listen(port, () => console.log(`KiMitHoz? elérhető: http://localhost:${port}`));
 }
 
-start().catch((error) => {
-  console.error('Nem sikerült elindítani a szervert:', error.message);
-  process.exit(1);
-});
+if (require.main === module) {
+  start().catch((error) => {
+    console.error('Nem sikerült elindítani a szervert:', error.message);
+    process.exit(1);
+  });
+}
+
+module.exports = { app, start };

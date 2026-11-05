@@ -394,18 +394,28 @@
 }
 
 body.admin-body.dark {
-    --ink: #f1f0eb;
-    --muted: #a5a69f;
-    --paper: #1b1c19;
-    --surface: #252622;
-    --line: #393a35;
-    --shadow: 0 16px 42px #0003;
+    color-scheme: dark;
+    --ink: #f7f3ff;
+    --muted: #c0b9d6;
+    --paper: #14111f;
+    --surface: #201b2d;
+    --line: #3b334e;
+    --accent: #d7f36b;
+    --accent-strong: #c0aaff;
+    --primary: #8a6cff;
+    --primary-hover: #9a81ff;
+    --shadow: 0 18px 48px #08051080;
     background: var(--paper);
     color: var(--ink)
 }
 
 body.admin-body.dark .admin-topbar {
-    background: #22231f
+    background: #201b2d
+}
+
+body.admin-body.dark .admin-badge {
+    color: #1b2435;
+    background: var(--accent)
 }
 
 body.admin-body.dark .admin-stat,
@@ -416,18 +426,18 @@ body.admin-body.dark .admin-panel {
 body.admin-body.dark .admin-tabs button.active,
 body.admin-body.dark .admin-table th,
 body.admin-body.dark .admin-table tr:hover td {
-    background: #30312c;
+    background: #2b253b;
     color: var(--ink)
 }
 
 body.admin-body.dark .admin-actions .search-input {
-    background: #30312c;
+    background: #2b253b;
     color: var(--ink);
     border-color: var(--line)
 }
 
 body.admin-body.dark .admin-row-actions button {
-    background: #30312c;
+    background: #2b253b;
     color: var(--ink);
     border-color: var(--line)
 }
@@ -438,8 +448,12 @@ body.admin-body.dark .admin-banned {
 }
 
 body.admin-body.dark .button-dark {
-    background: #8f2abe;
+    background: var(--primary);
     color: #fff
+}
+
+body.admin-body.dark .button-dark:hover {
+    background: var(--primary-hover)
 }
 
 body.admin-body.dark .button-outline {
@@ -455,7 +469,7 @@ body.admin-body.dark .admin-modal .modal {
 body.admin-body.dark .admin-form-grid input,
 body.admin-body.dark .admin-form-grid textarea,
 body.admin-body.dark .admin-form-grid select {
-    background: #30312c;
+    background: #2b253b;
     color: var(--ink);
     border-color: var(--line)
 }

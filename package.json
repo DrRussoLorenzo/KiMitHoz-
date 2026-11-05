@@ -4,7 +4,8 @@
   "description": "Kimihez - közösségi partyszervező alkalmazás MongoDB-vel",
   "main": "server.js",
   "scripts": {
-    "start": "node server.js"
+    "start": "node server.js",
+    "test": "jest --runInBand"
   },
   "keywords": [],
   "author": "",
@@ -31,5 +32,10 @@
   "bugs": {
     "url": "https://github.com/DrRussoLorenzo/KiMitHoz-/issues"
   },
-  "homepage": "https://github.com/DrRussoLorenzo/KiMitHoz-#readme"
+  "homepage": "https://github.com/DrRussoLorenzo/KiMitHoz-#readme",
+  "devDependencies": {
+    "jest": "^30.5.2",
+    "mongodb-memory-server": "^11.3.0",
+    "supertest": "^7.3.1"
+  }
 }

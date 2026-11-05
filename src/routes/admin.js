@@ -135,8 +135,14 @@ router.delete('/users/:id', async (req, res, next) => {
     const user = await User.findById(req.params.id).select('_id role +verificationDocuments');
     if (!user) return res.status(404).json({ message: 'A felhasználó nem található.' });
     if (user.role === 'admin') return res.status(400).json({ message: 'Az egyetlen admin fiók nem törölhető.' });
-    const hosted = await Party.find({ host: user._id }).select('_id');
+    const hosted = await Party.find({ host: user._id }).select('_id +galleryImages.filename');
     const partyIds = hosted.map((party) => party._id);
+    await Promise.all(hosted.flatMap((party) => party.galleryImages.map((image) => {
+      const filename = image.filename;
+      return typeof filename === 'string' && path.basename(filename) === filename
+        ? fs.promises.unlink(path.join(__dirname, '../../private/party-gallery', filename)).catch(() => {})
+        : Promise.resolve();
+    })));
     await Promise.all([
       Party.deleteMany({ _id: { $in: partyIds } }),
       Notification.deleteMany({ $or: [{ party: { $in: partyIds } }, { recipient: user._id }, { sender: user._id }, { targetUser: user._id }] }),
@@ -184,8 +190,15 @@ router.patch('/parties/:id', async (req, res, next) => {
 
 router.delete('/parties/:id', async (req, res, next) => {
   try {
-    const party = await Party.findByIdAndDelete(req.params.id);
+    const party = await Party.findById(req.params.id).select('+galleryImages.filename');
     if (!party) return res.status(404).json({ message: 'A buli nem található.' });
+    await Promise.all(party.galleryImages.map((image) => {
+      const filename = image.filename;
+      return typeof filename === 'string' && path.basename(filename) === filename
+        ? fs.promises.unlink(path.join(__dirname, '../../private/party-gallery', filename)).catch(() => {})
+        : Promise.resolve();
+    }));
+    await party.deleteOne();
     await Promise.all([Notification.deleteMany({ party: party._id }), PartyMessage.deleteMany({ party: party._id })]);
     res.json({ message: 'A buli és kapcsolódó üzenetei törölve.' });
   } catch (error) { next(error); }

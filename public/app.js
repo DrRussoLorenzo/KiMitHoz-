@@ -1,5 +1,5 @@
 // A böngészőben élő munkamenet és az aktuális képernyő adatai.
-const state = { token: localStorage.getItem('kimihez-token'), user: null, parties: [], discoverParties: [], friends: [], requests: [], notifications: [], view: 'home', authMode: 'login', activeParty: null, viewedProfile: null };
+const state = { token: localStorage.getItem('kimihez-token'), user: null, parties: [], discoverParties: [], archivedParties: [], friends: [], requests: [], notifications: [], view: 'home', authMode: 'login', activeParty: null, viewedProfile: null };
 const $ = (s, r = document) => r.querySelector(s);
 const $$ = (s, r = document) => [...r.querySelectorAll(s)];
 const esc = (v = '') => String(v).replace(/[&<>"']/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
@@ -25,6 +25,7 @@ let partyLocationMarker;
 let partyChatTimer;
 let partyChatLoading = false;
 let reverseLookupAt = 0;
+let galleryObjectUrls = [];
 // Közös JSON/API kliens: Bearer tokent csatol és olvasható hibát dob.
 async function api(path, options = {}) {
   const isMultipart = options.body instanceof FormData;
@@ -91,6 +92,30 @@ function partiesPage() {
     : empty('🎈', 'Még üres a naptárad', 'Szervezz egy bulit, vagy csatlakozz meghívóval.', '<button class="button button-lime button-small" data-action="join-code">Meghívókód megadása</button>');
 
   return `${heading('A TI TERVEITEK', 'Bulijaim', 'Minden meghívásod és szervezésed egy helyen.', '<button class="button button-dark" data-action="create">＋ Új buli</button>')}<div class="party-grid">${content}</div>`;
+}
+async function archivePage() {
+  const { parties } = await api('/parties/archive');
+  state.archivedParties = parties;
+  const content = parties.length ? parties.map((party) => {
+    const images = party.galleryImages || [];
+    return `<article class="archive-card"><div class="archive-card-head">${party.coverImage ? `<img src="${esc(party.coverImage)}" alt="" loading="lazy">` : '<span aria-hidden="true">🎉</span>'}<div><h2>${esc(party.title)}</h2><p>${dateLabel(party.date)} · ${esc(party.location)}</p><small>${images.length} / 30 kép · ${esc(party.host?.nickname || '')}</small></div></div>${images.length ? `<div class="party-gallery-grid">${images.map((image) => `<button type="button" class="gallery-photo" data-action="preview-gallery-image" aria-label="${esc(party.title)} – kép megnyitása"><img data-gallery-image="/parties/${encodeURIComponent(party._id)}/gallery/${encodeURIComponent(image._id)}/image" alt="${esc(party.title)} – feltöltött emlék" loading="lazy"></button>`).join('')}</div>` : '<p class="archive-no-images">Ehhez a bulihoz nem került fel kép.</p>'}</article>`;
+  }).join('') : empty('▧', 'Még nincs archivált buli', 'A bulik a dátumuk után egy héttel kerülnek ide a képeikkel együtt.');
+  return `${heading('KÖZÖS EMLÉKEK', 'Galéria', 'A lezárult bulik és a hozzájuk feltöltött képek egy helyen.')}<div class="archive-grid">${content}</div>`;
+}
+function releaseGalleryObjectUrls() {
+  galleryObjectUrls.forEach((url) => URL.revokeObjectURL(url));
+  galleryObjectUrls = [];
+}
+async function loadGalleryImages() {
+  await Promise.all($$('[data-gallery-image]').map(async (image) => {
+    try {
+      const response = await fetch(`/api${image.dataset.galleryImage}`, { headers: { Authorization: `Bearer ${state.token}` } });
+      if (!response.ok) return image.classList.add('gallery-image-error');
+      const url = URL.createObjectURL(await response.blob());
+      galleryObjectUrls.push(url);
+      image.src = url;
+    } catch (_error) { image.classList.add('gallery-image-error'); }
+  }));
 }
 async function discoverPage() {
   const { parties } = await api('/parties/discover');
@@ -220,6 +245,10 @@ function profilePage() {
   return `${heading('RÓLAD SZÓL','Profilom','Állítsd be a profilodat.')}<section class="surface-card"><form id="profile-form">${avatar}<label class="field">Profilkép URL-je<input name="avatar" type="url" maxlength="2048" value="${esc(state.user.avatar || '')}" placeholder="https://pelda.hu/profilkep.jpg"><small>Csak kép URL-jét add meg; üresen hagyva az alapértelmezett monogram jelenik meg.</small></label><label class="field">Becenév<input name="nickname" value="${esc(state.user.nickname)}" required></label><label class="field">Bemutatkozás<textarea name="bio">${esc(state.user.bio || '')}</textarea></label><div class="setting-row"><strong>Sötét megjelenés</strong><input type="checkbox" name="theme" ${state.user.settings?.theme === 'dark' ? 'checked' : ''}></div><div class="setting-row"><strong>Értesítések</strong><input type="checkbox" name="notifications" ${state.user.settings?.notifications !== false ? 'checked' : ''}></div><button class="button button-dark" type="submit">Mentés</button><button class="button button-outline" type="button" data-action="logout">Kijelentkezés</button></form></section>`;
 }
 function openImageViewer(imageUrl) {
+  if (typeof imageUrl === 'string' && imageUrl.startsWith('blob:')) {
+    $('#modal-root').innerHTML = `<div class="image-viewer-backdrop" data-action="dismiss-image-viewer" role="presentation"><button type="button" class="image-viewer-close" data-action="close-image-viewer" aria-label="Bezárás">×</button><img class="image-viewer-image" src="${esc(imageUrl)}" alt="Feltöltött buliemlék teljes méretben"><span class="image-viewer-hint">Kattints a bezáráshoz vagy nyomj Esc-et</span></div>`;
+    return;
+  }
   let url;
   try { url = new URL(imageUrl); } catch (_error) { return; }
   if (!['http:', 'https:'].includes(url.protocol)) return;
@@ -296,6 +325,11 @@ function renderParty(p) {
   }).join('');
   const canInviteFriends = isHost || statusOf(p) === 'going';
   const canLeave = !isHost && statusOf(p) === 'going';
+  const canUseGallery = isHost || statusOf(p) === 'going';
+  const galleryDeadline = new Date(p.date).getTime() + 7 * 24 * 60 * 60 * 1000;
+  const galleryIsOpen = Date.now() >= new Date(p.date).getTime() && Date.now() < galleryDeadline && !p.isArchived;
+  const galleryImages = p.galleryImages || [];
+  const gallerySection = canUseGallery ? `<section class="surface-card party-gallery"><div class="party-gallery-heading"><div><h2>Bulifotók</h2><p class="muted">A buli napjától 7 napig tölthettek fel, utána a buli a Galériába kerül.</p></div><span class="gallery-count">${galleryImages.length} / 30</span></div>${galleryIsOpen ? `<label class="button button-lime button-small gallery-upload">＋ Kép feltöltése<input id="party-gallery-upload" data-party="${esc(p._id)}" type="file" accept="image/jpeg,image/png,image/gif,image/webp"></label>` : ''}${galleryImages.length ? `<div class="party-gallery-grid">${galleryImages.map((image) => `<button type="button" class="gallery-photo" data-action="preview-gallery-image" aria-label="${esc(p.title)} – kép megnyitása"><img data-gallery-image="/parties/${encodeURIComponent(p._id)}/gallery/${encodeURIComponent(image._id)}/image" alt="${esc(p.title)} – feltöltött emlék" loading="lazy"></button>`).join('')}</div>` : `<p class="gallery-empty">${galleryIsOpen ? 'Még nincs kép. Töltsétek fel az első közös emléket!' : 'Ehhez a bulihoz még nem töltöttek fel képet.'}</p>`}</section>` : '';
   const eligibleFriends = state.friends.filter((friend) => !p.members.some((member) => (member.user?._id || member.user)?.toString() === friend.id && ['going', 'invited'].includes(member.status)));
   const inviteFriends = canInviteFriends ? `<h2>${isHost ? 'Hívd meg a barátaid' : 'Kérj meghívót a barátaidnak'}</h2>${eligibleFriends.map((friend) => `<div class="person-row">${avatarMarkup(friend)}<div class="person-details"><strong>${esc(friend.nickname)}</strong><small>@${esc(friend.username)}</small></div><button class="button button-outline button-small" data-action="invite-friend" data-user="${friend.id}" data-party="${p._id}">${isHost ? 'Meghívás' : 'Meghívás kérése'}</button></div>`).join('') || '<p class="muted">Nincs meghívható ismerősöd.</p>'}` : '';
   const join = p.visibility === 'public' && !isHost && statusOf(p) !== 'going' ? `<button class="button button-dark button-small" data-action="join-public" data-party="${p._id}">Csatlakozom</button>` : '';
@@ -304,6 +338,7 @@ function renderParty(p) {
     <section class="party-detail-head"><div><span class="pill">${p.visibility === 'public' ? 'Nyilvános' : 'Privát buli'}</span><h1>${esc(p.title)}</h1><span class="muted">Szervezi: ${esc(p.host?.nickname || '')}</span></div><div>${p.inviteCode ? `<button class="button button-dark button-small" data-action="copy-code" data-code="${p.inviteCode}">Kód: ${p.inviteCode} ⧉</button>` : ''}${join}${canLeave ? `<button class="button button-outline button-small leave-party-button" data-action="leave-party" data-party="${esc(p._id)}">Kilépés a buliból</button>` : ''}${isHost ? '<button class="button button-outline button-small" data-action="edit-party">Szerkesztés</button>' : ''}</div></section>
     <div class="party-detail-columns"><section class="surface-card"><h2>Az eseményről</h2><div class="detail-line">◷ ${dateLabel(p.date)}</div><div class="detail-line">⌖ ${esc(p.location)}</div><div class="detail-line">♧ ${attending.length} / ${p.maxGuests} fő · ${p.ticketPrice ? `${p.ticketPrice} Ft` : 'Ingyenes'}</div><div class="detail-line">🔞 Minimum életkor: ${esc(p.minAge || 16)} év</div><div class="detail-line">✳ ${esc(p.description || 'Nincs leírás.')}</div><h2>Résztvevők</h2>${attendees}${inviteFriends}</section>
     <section class="surface-card"><div class="contribution-heading"><h2>Ki mit hoz?</h2><button type="button" class="button button-outline button-small" data-action="toggle-cost-summary" aria-expanded="false">Összegzés</button></div>${costSummary}${isHost || statusOf(p) === 'going' ? '<form id="item-form" class="form-grid"><label class="field span-two">Tétel neve<input name="name" required maxlength="100"></label><label class="field">Ikon<input name="icon" value="🍽️" maxlength="2048" placeholder="Emoji vagy kép URL-je" aria-label="Tétel ikonja: emoji vagy kép URL-je" required><small>Csak egy emoji vagy http(s) kép URL adható meg.</small></label><label class="field">Mennyiség<input name="quantity" value="1"></label><label class="field">Ár (Ft)<input name="price" type="number" min="0" step="1" value="0" required></label><label class="field">Kategória<select name="category"><option value="étel">Étel</option><option value="ital">Ital</option><option value="egyéb">Egyéb</option></select></label><button class="button button-lime button-small span-two">＋ Hozzáadás</button></form>' : ''}${items || '<p class="muted">Még nincs tétel.</p>'}<div class="contribution-total"><span>Tételek összesen</span><strong>${formatFt(totalItemPrice)}</strong></div></section></div>
+    ${gallerySection}
     ${canChatParty ? `<section class="surface-card party-chat"><div class="party-chat-heading"><div><h2>Beszélgetés</h2><p class="muted">A buli résztvevőinek közös chatje</p></div><span class="chat-live-indicator">● Frissül</span></div><div id="party-chat-messages" class="party-chat-messages" role="log" aria-live="polite" aria-label="Buli chat üzenetei"><p class="chat-empty">Üzenetek betöltése…</p></div><form id="party-chat-form" class="party-chat-form" data-party-id="${esc(p._id)}"><label class="sr-only" for="party-chat-input">Üzenet</label><textarea id="party-chat-input" name="text" rows="2" maxlength="1000" placeholder="Írj üzenetet…" required></textarea><button class="button button-dark" type="submit">Küldés <span aria-hidden="true">→</span></button></form></section>` : ''}`;
 }
 function openModal(title, content) { $('#modal-root').innerHTML = `<div class="modal-backdrop" data-action="dismiss-modal"><section class="modal"><div class="modal-head"><h2>${title}</h2><button class="modal-close" data-action="close-modal">×</button></div>${content}</section></div>`; }
@@ -311,20 +346,23 @@ function openModal(title, content) { $('#modal-root').innerHTML = `<div class="m
 async function render() {
   clearInterval(partyChatTimer);
   partyChatTimer = null;
-  const labels = { home: 'Áttekintés', parties: 'Bulijaim', discover: 'Felfedezés', friends: 'Barátok', notifications: 'Értesítések', profile: 'Profilom', 'friend-profile': 'Ismerős profilja', 'party-detail': 'Buli részletei' };
+  releaseGalleryObjectUrls();
+  const labels = { home: 'Áttekintés', parties: 'Bulijaim', discover: 'Felfedezés', archive: 'Galéria', friends: 'Barátok', notifications: 'Értesítések', profile: 'Profilom', 'friend-profile': 'Ismerős profilja', 'party-detail': 'Buli részletei' };
   $('#breadcrumb').innerHTML = `${labels[state.view]} <span>/</span> Neked`;
   $$('.nav-link').forEach((link) => link.classList.toggle('active', link.dataset.view === state.view));
 
   const content = state.view === 'home' ? homePage()
     : state.view === 'parties' ? partiesPage()
       : state.view === 'discover' ? await discoverPage()
-        : state.view === 'friends' ? friendsPage()
-          : state.view === 'notifications' ? notificationsPage()
-            : state.view === 'profile' ? profilePage()
-              : state.view === 'friend-profile' ? viewedProfilePage()
-              : renderParty(state.activeParty);
+          : state.view === 'archive' ? await archivePage()
+            : state.view === 'friends' ? friendsPage()
+              : state.view === 'notifications' ? notificationsPage()
+                : state.view === 'profile' ? profilePage()
+                  : state.view === 'friend-profile' ? viewedProfilePage()
+                    : renderParty(state.activeParty);
 
   $('#page-content').innerHTML = content;
+  if (state.view === 'archive' || state.view === 'party-detail') await loadGalleryImages();
   if (state.view === 'discover') initDiscoveryMap(state.discoverParties);
   if (state.view === 'party-detail' && state.activeParty?._id && $('#party-chat-messages')) {
     const partyId = state.activeParty._id;
@@ -353,6 +391,10 @@ document.addEventListener('click', async event => {
     if (action === 'view-party') await openParty(button.dataset.party);
     if (action === 'close-modal' || action === 'dismiss-modal' && event.target === button) $('#modal-root').innerHTML = '';
     if (action === 'preview-profile-image') openImageViewer(button.dataset.image);
+    if (action === 'preview-gallery-image') {
+      const image = $('img[data-gallery-image]', button);
+      if (image?.src.startsWith('blob:')) openImageViewer(image.src);
+    }
     if (action === 'close-image-viewer' || action === 'dismiss-image-viewer' && event.target === button) $('#modal-root').innerHTML = '';
     if (action === 'logout') logout();
     if (action === 'search-friends') await searchFriends();
@@ -401,6 +443,17 @@ document.addEventListener('submit', async event => {
 });
 // A privát/nyilvános kapcsoló vezérli a térképes helyválasztót.
 document.addEventListener('change', event => {
+  if (event.target.id === 'party-gallery-upload') {
+    const file = event.target.files?.[0];
+    if (!file) return;
+    const partyId = event.target.dataset.party;
+    const formData = new FormData();
+    formData.append('image', file);
+    api(`/parties/${encodeURIComponent(partyId)}/gallery`, { method: 'POST', body: formData })
+      .then(async ({ message }) => { await openParty(partyId); toast(message); })
+      .catch(error => toast(error.message, true));
+    return;
+  }
   if (event.target.id === 'party-cover-upload') {
     const file = event.target.files?.[0];
     if (!file) return;

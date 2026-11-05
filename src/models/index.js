@@ -38,6 +38,13 @@ const partySchema = new mongoose.Schema({
   visibility: { type: String, enum: ['private', 'public'], default: 'private' },
   inviteCode: { type: String, unique: true, sparse: true },
   date: { type: Date, required: true },
+  isArchived: { type: Boolean, default: false, index: true },
+  archivedAt: { type: Date },
+  galleryImages: [{
+    filename: { type: String, required: true, select: false },
+    uploadedBy: { type: mongoose.Schema.Types.ObjectId, ref: 'User', required: true },
+    uploadedAt: { type: Date, default: Date.now }
+  }],
   location: { type: String, required: true, trim: true, maxlength: 160 },
   coordinates: {
     lat: { type: Number, min: -90, max: 90 },
