@@ -10,6 +10,7 @@ const userSchema = new mongoose.Schema({
   banReason: { type: String, default: '', maxlength: 240 },
   bannedAt: { type: Date },
   age: { type: Number, min: 16, max: 120 },
+  birthDate: { type: Date, select: false },
   verificationStatus: { type: String, enum: ['pending', 'approved', 'rejected'], default: 'approved' },
   verificationReviewedAt: { type: Date },
   verificationDocuments: {
@@ -81,9 +82,23 @@ const partyMessageSchema = new mongoose.Schema({
 }, { timestamps: true });
 partyMessageSchema.index({ party: 1, createdAt: -1 });
 
+// Adminisztrátori módosítások naplója; kérésadatok és személyes tartalmak nélkül.
+const adminAuditLogSchema = new mongoose.Schema({
+  actor: { type: mongoose.Schema.Types.ObjectId, ref: 'User', required: true },
+  method: { type: String, enum: ['POST', 'PATCH', 'PUT', 'DELETE'], required: true },
+  action: { type: String, enum: ['create', 'update', 'delete', 'approve', 'reject', 'ban', 'unban'], default: 'update' },
+  description: { type: String, default: '', maxlength: 600 },
+  resource: { type: String, required: true, maxlength: 80 },
+  resourceId: { type: String, default: '', maxlength: 80 },
+  resourceName: { type: String, default: '', maxlength: 240 },
+  statusCode: { type: Number, required: true }
+}, { timestamps: true });
+adminAuditLogSchema.index({ createdAt: -1 });
+
 module.exports = {
   User: mongoose.model('User', userSchema),
   Party: mongoose.model('Party', partySchema),
   Notification: mongoose.model('Notification', notificationSchema),
-  PartyMessage: mongoose.model('PartyMessage', partyMessageSchema)
+  PartyMessage: mongoose.model('PartyMessage', partyMessageSchema),
+  AdminAuditLog: mongoose.model('AdminAuditLog', adminAuditLogSchema)
 };

@@ -18,7 +18,7 @@
     <section class="auth-art">
       <a class="brand brand-light" href="#"><span class="brand-mark">K</span> KiMitHoz?</a>
       <div class="auth-art-copy"><span class="eyebrow">A JÓ ESTÉK ITT KEZDŐDNEK</span><h1>Az élmény<br>közös.<br><em>A szervezés is.</em></h1><p>Találd meg, ki jön. Oszd el, ki mit hoz. A többit bízd az estére.</p></div>
-      <div class="art-note"><span>✳</span><div><strong>Ez már alakul!</strong><small>Hétvégén találkozunk 🎉</small></div><div class="avatar-stack"><i>A</i><i>M</i><i>+</i></div></div>
+      <div class="art-note"><span></span><div><strong>Ez már alakul!</strong><small>Hétvégén találkozunk 🎉</small></div><div class="avatar-stack"><i>A</i><i>M</i><i>+</i></div></div>
       <span class="art-orbit orbit-one"></span><span class="art-orbit orbit-two"></span>
     </section>
     <section class="auth-panel"><div class="auth-form-wrap">
@@ -27,14 +27,14 @@
       <form id="auth-form">
         <label id="nickname-field" class="field hidden">Becenév<input name="nickname" placeholder="Hogy szólítsunk?" autocomplete="name"></label>
         <label id="username-field" class="field hidden">Felhasználónév<input name="username" placeholder="pl. anna_k" autocomplete="username"></label>
-        <label id="age-field" class="field hidden">Életkor<input name="age" type="number" placeholder="Hány éves vagy?" min="16" max="120" step="1"></label>
-        <label id="identity-document-field" class="field hidden">Személyi igazolvány képe<input name="identityDocument" type="file" accept="image/jpeg,image/png,image/webp"><small>JPG, PNG vagy WebP, legfeljebb 5 MB.</small></label>
-        <label id="face-photo-field" class="field hidden">Saját arckép<input name="facePhoto" type="file" accept="image/jpeg,image/png,image/webp"><small>JPG, PNG vagy WebP, legfeljebb 5 MB.</small></label>
+        <label id="birth-date-field" class="field hidden">Születési dátum<input name="birthDate" type="date" autocomplete="bday"><small>A regisztrációhoz legalább 16 évesnek kell lenned.</small></label>
+        <label id="identity-document-field" class="field file-upload-field hidden">Személyi igazolvány képe<span class="file-upload-control"><i class="fa-regular fa-id-card" aria-hidden="true"></i><span class="file-upload-copy"><strong>Válaszd ki a személyi képét</strong><small class="file-upload-name">JPG, PNG vagy WebP · legfeljebb 5 MB</small></span><i class="fa-solid fa-arrow-up-from-bracket file-upload-arrow" aria-hidden="true"></i></span><input class="file-upload-input" name="identityDocument" type="file" accept="image/jpeg,image/png,image/webp"></label>
+        <label id="face-photo-field" class="field file-upload-field hidden">Saját arckép<span class="file-upload-control"><i class="fa-regular fa-image" aria-hidden="true"></i><span class="file-upload-copy"><strong>Válaszd ki az arcképedet</strong><small class="file-upload-name">JPG, PNG vagy WebP · legfeljebb 5 MB</small></span><i class="fa-solid fa-arrow-up-from-bracket file-upload-arrow" aria-hidden="true"></i></span><input class="file-upload-input" name="facePhoto" type="file" accept="image/jpeg,image/png,image/webp"></label>
         <label class="field">E-mail-cím<input name="email" type="email" placeholder="te@email.hu" autocomplete="email" required></label>
         <label class="field">Jelszó<input name="password" type="password" placeholder="Legalább 8 karakter" autocomplete="current-password" minlength="8" required></label>
         <button class="button button-dark full" type="submit" id="auth-submit">Bejelentkezés <span>→</span></button>
       </form><p class="terms">A folytatással elfogadod a közösségi szabályokat.</p>
-    </div><span class="auth-footer">© 2026 Kimihez · Jó emberek, jó esték.</span></section>
+    </div><span class="auth-footer">© 2026 KiMitHoz · Jó emberek, jó esték.</span></section>
   </main>
 
   <!-- Bejelentkezés után a navigáció és a JavaScript által rajzolt nézetek. -->

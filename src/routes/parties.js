@@ -429,12 +429,14 @@ router.post('/:id/items', async (req, res, next) => {
     const party = await Party.findById(req.params.id);
     if (!party || !memberOf(party, req.user._id) || memberOf(party, req.user._id).status !== 'going') return res.status(403).json({ message: 'Csak résztvevő adhat hozzá tételt.' });
     const { name, quantity = '1', category = 'egyéb' } = req.body;
+    const parsedQuantity = Number(quantity);
     const price = Number(req.body.price ?? 0);
     const icon = typeof req.body.icon === 'string' && req.body.icon.trim() ? req.body.icon.trim() : '✳';
     if (!name?.trim()) return res.status(400).json({ message: 'A tétel megnevezése kötelező.' });
-    if (!Number.isSafeInteger(price) || price < 0) return res.status(400).json({ message: 'Az ár nemnegatív, egész forint összeg legyen.' });
+    if (!Number.isInteger(parsedQuantity) || parsedQuantity < 1 || parsedQuantity > 1000) return res.status(400).json({ message: 'A mennyiség 1 és 1000 közötti egész szám legyen.' });
+    if (!Number.isSafeInteger(price) || price < 0 || price > 1000000) return res.status(400).json({ message: 'Az ár 0 és 1 000 000 Ft közötti egész összeg legyen.' });
     if (!iconValue(icon)) return res.status(400).json({ message: 'Az ikon egyetlen emoji vagy http(s) kép URL lehet.' });
-    party.contributions.push({ user: req.user._id, name: name.trim(), quantity, price, category, icon });
+    party.contributions.push({ user: req.user._id, name: name.trim(), quantity: String(parsedQuantity), price, category, icon });
     await party.save();
     res.status(201).json({ party: await populateParty(Party.findById(party._id)) });
   } catch (error) { next(error); }

@@ -28,20 +28,24 @@ router.post('/register', verificationUpload.fields([{ name: 'identityDocument', 
   const discardUploads = () => Promise.all(uploadedAssets.map((asset) => destroyImage(asset.publicId, 'authenticated').catch(() => {})));
   let createdUser;
   try {
-    const { email, username, nickname, age, password } = req.body;
-    if (!email || !username || !nickname || !age || !password || !req.files?.identityDocument?.[0] || !req.files?.facePhoto?.[0]) return res.status(400).json({ message: 'Minden mező, a személyi igazolvány képe és az arckép megadása kötelező.' });
+    const { email, username, nickname, birthDate, password } = req.body;
+    if (!email || !username || !nickname || !birthDate || !password || !req.files?.identityDocument?.[0] || !req.files?.facePhoto?.[0]) return res.status(400).json({ message: 'Minden mező, a születési dátum, a személyi igazolvány képe és az arckép megadása kötelező.' });
     const normalizedEmail = String(email).toLowerCase().trim();
     if (!/^\S+@\S+\.\S+$/.test(normalizedEmail)) return res.status(400).json({ message: 'Adj meg egy érvényes e-mail-címet.' });
     if (!/^[a-zA-Z0-9_]{3,24}$/.test(username)) return res.status(400).json({ message: 'A felhasználónév 3–24 karakteres lehet (betű, szám, _).' });
-    const parsedAge = Number(age);
-    if (!Number.isInteger(parsedAge) || parsedAge < 16 || parsedAge > 120) return res.status(400).json({ message: 'Az életkor 16 és 120 év közötti egész szám legyen.' });
+    const parsedBirthDate = new Date(`${birthDate}T00:00:00.000Z`);
+    if (!/^\d{4}-\d{2}-\d{2}$/.test(birthDate) || Number.isNaN(parsedBirthDate.getTime()) || parsedBirthDate.toISOString().slice(0, 10) !== birthDate) return res.status(400).json({ message: 'Adj meg egy érvényes születési dátumot.' });
+    const now = new Date();
+    let parsedAge = now.getUTCFullYear() - parsedBirthDate.getUTCFullYear();
+    if (now.getUTCMonth() < parsedBirthDate.getUTCMonth() || now.getUTCMonth() === parsedBirthDate.getUTCMonth() && now.getUTCDate() < parsedBirthDate.getUTCDate()) parsedAge -= 1;
+    if (parsedAge < 16 || parsedAge > 120) return res.status(400).json({ message: 'A regisztrációhoz 16 és 120 év közötti életkor szükséges.' });
     if (typeof password !== 'string' || password.length < 8) return res.status(400).json({ message: 'A jelszó legalább 8 karakter legyen.' });
     const identity = await uploadImage(req.files.identityDocument[0].buffer, { folder: 'kimithoz/verification', type: 'authenticated' });
     uploadedAssets.push(identity);
     const face = await uploadImage(req.files.facePhoto[0].buffer, { folder: 'kimithoz/verification', type: 'authenticated' });
     uploadedAssets.push(face);
     createdUser = await User.create({
-      email: normalizedEmail, username, nickname, age: parsedAge,
+      email: normalizedEmail, username, nickname, age: parsedAge, birthDate: parsedBirthDate,
       passwordHash: await bcrypt.hash(password, 12),
       verificationStatus: 'pending',
       verificationDocuments: {

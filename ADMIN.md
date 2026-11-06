@@ -11,6 +11,8 @@ A panel az összes felhasználói fiókot, bulit, bulihoz tartozó tételt, ért
 
 A törlés visszafordíthatatlan; a felhasználó vagy buli törlése a hozzá kapcsolódó adatokat is eltávolítja. A panel 50-es oldalakon jeleníti meg az adatokat, ezért az oldalak végiglapozásával a teljes adatbázis áttekinthető.
 
+A vezérlőpult külön kártyán jelzi a függő regisztrációk számát; a kártyára kattintva megnyílik az ellenőrzési lista. A „Műveleti napló” fül az adminisztrátori létrehozásokat, módosításokat, törléseket és regisztrációs döntéseket mutatja, kereshető és lapozható formában. A napló nem tárolja a kérés tartalmát, jelszavakat vagy feltöltött dokumentumokat.
+
 ## Regisztrációs ellenőrzés
 
 A felhasználó a regisztrációs űrlapon megadja az adatait és feltölti a személyi igazolvány, illetve az arcképét. A kérelmeket az admin panel „Regisztrációk ellenőrzése” menüpontjában lehet megtekinteni, elfogadni vagy elutasítani. SMTP-beállítás nem szükséges. A döntés után a felhasználó bejelentkezéskor kap visszajelzést; elfogadás esetén a főoldalon is megjelenik az értesítés. A képek a nem publikus `private/verification/` mappában vannak, csak admin API-n keresztül érhetők el, és az elbírálás után törlődnek.

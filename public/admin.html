@@ -6,6 +6,7 @@
   <link rel="preconnect" href="https://fonts.googleapis.com"><link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
   <link href="https://fonts.googleapis.com/css2?family=DM+Sans:wght@400;500;600;700&family=Manrope:wght@500;600;700;800&display=swap" rel="stylesheet">
   <link rel="stylesheet" href="/styles.css"><link rel="stylesheet" href="/admin.css">
+  <script src="https://kit.fontawesome.com/6400879559.js" crossorigin="anonymous"></script>
 </head>
 <body class="admin-body">
   <div class="admin-topbar"><a class="brand" href="/"><span class="brand-mark">K</span>KiMitHoz? <span class="admin-badge">ADMIN</span></a><div><span id="admin-identity">Betöltés…</span><button id="admin-theme-toggle" class="button button-outline button-small" type="button" aria-label="Sötét mód bekapcsolása">🌙</button><a class="button button-outline button-small" href="/">Vissza az alkalmazásba</a><button id="admin-logout" class="button button-dark button-small">Kilépés</button></div></div>
@@ -14,8 +15,8 @@
     <section id="admin-stats" class="admin-stats" aria-label="Rendszerstatisztikák"></section>
     <section class="admin-panel">
       <div class="admin-toolbar"><nav id="admin-tabs" class="admin-tabs" aria-label="Adattípusok">
-        <button class="active" data-admin-tab="users">Felhasználók</button><button data-admin-tab="verification">Regisztrációk ellenőrzése</button><button data-admin-tab="parties">Bulik</button><button data-admin-tab="items">Tételek</button><button data-admin-tab="notifications">Értesítések</button><button data-admin-tab="messages">Chatüzenetek</button>
-      </nav><div class="admin-actions"><input id="admin-search" class="search-input" type="search" placeholder="Keresés…" aria-label="Keresés"><button id="admin-add" class="button button-dark">＋ Hozzáadás</button></div></div>
+        <button class="active" data-admin-tab="users">Felhasználók</button><button data-admin-tab="verification">Regisztrációk ellenőrzése</button><button data-admin-tab="parties">Bulik</button><button data-admin-tab="items">Tételek</button><button data-admin-tab="notifications">Értesítések</button><button data-admin-tab="messages">Chatüzenetek</button><button data-admin-tab="audit">Műveleti napló</button>
+      </nav><div class="admin-actions"><input id="admin-search" class="search-input" type="search" placeholder="Keresés…" aria-label="Keresés"><select id="admin-audit-filter" class="search-input hidden" aria-label="Művelet típusa szerinti szűrés"><option value="">Minden művelet</option><option value="create">Létrehozás</option><option value="update">Módosítás</option><option value="delete">Törlés</option><option value="approve">Regisztráció jóváhagyása</option><option value="reject">Regisztráció elutasítása</option><option value="ban">Kitiltás</option><option value="unban">Kitiltás feloldása</option></select><button id="admin-add" class="button button-dark">＋ Hozzáadás</button></div></div>
       <div id="admin-status" class="admin-status" role="status"></div>
       <div class="admin-table-wrap"><table class="admin-table"><thead id="admin-thead"></thead><tbody id="admin-tbody"></tbody></table></div>
       <div class="admin-pagination"><span id="admin-page-info">—</span><div><button id="admin-prev" class="button button-outline button-small">← Előző</button><button id="admin-next" class="button button-outline button-small">Következő →</button></div></div>

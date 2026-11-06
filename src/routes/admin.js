@@ -4,10 +4,212 @@ const fs = require('fs');
 const path = require('path');
 const auth = require('../middleware/auth');
 const requireAdmin = require('../middleware/admin');
-const { User, Party, Notification, PartyMessage } = require('../models');
+const { User, Party, Notification, PartyMessage, AdminAuditLog } = require('../models');
 const { destroyImage, isCloudinaryId, sendAuthenticatedImage, toCloudinaryId } = require('../services/cloudinary');
 
 router.use(auth, requireAdmin);
+const resourceLabels = { users: 'felhasználó', parties: 'buli', items: 'tétel', notifications: 'értesítés', messages: 'chatüzenet', 'verification-requests': 'regisztráció' };
+const changedFieldLabels = {
+  email: 'e-mail-cím', username: 'felhasználónév', nickname: 'becenév', age: 'életkor', avatar: 'profilkép', bio: 'bemutatkozás',
+  isBanned: 'fiókállapot', banReason: 'kitiltási indok', settings: 'beállítások', friends: 'ismerőslista', friendRequests: 'barátfelkérések',
+  title: 'buli neve', host: 'szervező', date: 'időpont', location: 'helyszín', visibility: 'láthatóság', ticketPrice: 'belépő',
+  maxGuests: 'létszámkorlát', minAge: 'korhatár', inviteCode: 'meghívókód', coverImage: 'borítókép', description: 'leírás',
+  coordinates: 'helykoordináták', members: 'résztvevők', contributions: 'hozható tételek', partyId: 'buli', user: 'felhasználó',
+  name: 'tétel neve', quantity: 'mennyiség', price: 'ár', category: 'kategória', icon: 'ikon', recipient: 'címzett', sender: 'feladó',
+  party: 'buli', targetUser: 'célfelhasználó', type: 'értesítéstípus', inviteRequestStatus: 'meghívási kérelem állapota',
+  message: 'üzenet', read: 'olvasottság', text: 'üzenet szövege', password: 'jelszó'
+};
+function auditAction(req, resource, segments) {
+  if (resource === 'verification-requests' && segments[2] === 'decision') return req.body?.decision === 'approved' ? 'approve' : 'reject';
+  if (resource === 'users' && segments[2] === 'ban') return req.body?.isBanned ? 'ban' : 'unban';
+  return ({ POST: 'create', PATCH: 'update', PUT: 'update', DELETE: 'delete' })[req.method] || 'update';
+}
+function normalizedAuditValue(value, field) {
+  if (value === '' || value === undefined) return null;
+  if (value === null) return null;
+  if (value instanceof Date) return value.toISOString();
+  if (value && typeof value.toHexString === 'function') return value.toHexString();
+  if (field === 'date' && typeof value === 'string') {
+    const parsedDate = new Date(value);
+    if (!Number.isNaN(parsedDate.getTime())) return parsedDate.toISOString();
+  }
+  if (Array.isArray(value)) return value.map((entry) => normalizedAuditValue(entry));
+  if (value && typeof value === 'object') {
+    return Object.fromEntries(Object.keys(value).filter((key) => key !== '_id' && key !== '__v').sort().map((key) => [key, normalizedAuditValue(value[key], key)]));
+  }
+  return value;
+}
+function auditObjectId(value) {
+  if (value && typeof value.toHexString === 'function') return value.toHexString();
+  if (typeof value === 'string' && /^[a-f\d]{24}$/i.test(value)) return value;
+  return '';
+}
+async function auditUserLabels(ids) {
+  const uniqueIds = [...new Set(ids.map(auditObjectId).filter(Boolean))];
+  if (!uniqueIds.length) return new Map();
+  const users = await User.find({ _id: { $in: uniqueIds } }).select('nickname username').lean();
+  return new Map(users.map((user) => [String(user._id), `${user.nickname || user.username}${user.username ? ` (@${user.username})` : ''}`]));
+}
+async function readableAuditValue(value, field) {
+  if (['user', 'host', 'recipient', 'sender', 'targetUser'].includes(field)) {
+    const id = auditObjectId(value);
+    if (!id) return value;
+    return (await auditUserLabels([id])).get(id) || 'Felhasználó már nem található';
+  }
+  if (['party', 'partyId'].includes(field)) {
+    const id = auditObjectId(value);
+    if (!id) return value;
+    const party = await Party.findById(id).select('title').lean();
+    return party?.title || 'Buli már nem található';
+  }
+  if (field === 'friends' || field === 'friendRequests') {
+    const labels = await auditUserLabels(value || []);
+    return (value || []).map((id) => labels.get(auditObjectId(id)) || 'Felhasználó már nem található');
+  }
+  if (field === 'members') {
+    const members = value || [];
+    const labels = await auditUserLabels(members.map((member) => member.user));
+    return members.map((member) => `${labels.get(auditObjectId(member.user)) || 'Felhasználó már nem található'} · ${member.status || 'állapot nélkül'}`);
+  }
+  if (field === 'contributions') {
+    return (value || []).map((item) => `${item.name || 'Tétel'} × ${item.quantity || '1'} · ${Number(item.price || 0).toLocaleString('hu-HU')} Ft`);
+  }
+  return value;
+}
+async function actuallyChangedFields(resource, segments, body) {
+  try {
+    let existing;
+    let keys = Object.keys(body || {});
+    if (resource === 'users') {
+      if (segments[2] === 'ban') return [];
+      existing = await User.findById(segments[1]).select('email username nickname age avatar bio isBanned banReason settings friends friendRequests +passwordHash').lean();
+    } else if (resource === 'parties') {
+      existing = await Party.findById(segments[1]).select('title coverImage description host visibility inviteCode date location coordinates ticketPrice maxGuests minAge members contributions').lean();
+    } else if (resource === 'items') {
+      const party = await Party.findById(segments[1]).select('contributions').lean();
+      existing = party?.contributions?.find((item) => String(item._id) === String(segments[2]));
+      keys = keys.filter((key) => ['user', 'name', 'quantity', 'price', 'category', 'icon'].includes(key));
+    } else if (resource === 'notifications') {
+      existing = await Notification.findById(segments[1]).lean();
+    } else if (resource === 'messages') {
+      existing = await PartyMessage.findById(segments[1]).lean();
+    }
+    if (!existing) return [];
+    const changed = keys.filter((key) => Object.prototype.hasOwnProperty.call(existing, key)
+      && JSON.stringify(normalizedAuditValue(existing[key], key)) !== JSON.stringify(normalizedAuditValue(body[key], key)))
+      .map((key) => ({ key, from: existing[key], to: body[key] }));
+    return Promise.all(changed.map(async (change) => ({
+      ...change,
+      from: await readableAuditValue(change.from, change.key),
+      to: await readableAuditValue(change.to, change.key)
+    })));
+  } catch (_error) { return []; }
+}
+function auditFieldSummary(body, keys = Object.keys(body || {})) {
+  const fieldKeys = keys.map((entry) => typeof entry === 'string' ? entry : entry.key);
+  const fields = fieldKeys.map((key) => changedFieldLabels[key] || key);
+  if (body?.password && fieldKeys.includes('password')) fields.push('jelszó beállítása');
+  return [...new Set(fields.filter((field) => field !== 'jelszó'))];
+}
+function auditValueText(value, key) {
+  if (key === 'password') return 'rejtett';
+  if (key === 'banReason') return 'indok rejtve';
+  if (value === undefined || value === null || value === '') return 'nincs megadva';
+  if (typeof value === 'boolean') return value ? 'igen' : 'nem';
+  if (typeof value === 'number') return value.toLocaleString('hu-HU');
+  if (value instanceof Date || key === 'date' && typeof value === 'string') {
+    const date = new Date(value);
+    if (!Number.isNaN(date.getTime())) return new Intl.DateTimeFormat('hu-HU', { dateStyle: 'short', timeStyle: 'short' }).format(date);
+  }
+  if (value && typeof value.toHexString === 'function') return value.toHexString();
+  if (Array.isArray(value)) return `[${value.map((entry) => auditValueText(entry)).join(', ')}]`;
+  if (value && typeof value === 'object') {
+    return `{${Object.entries(value).map(([field, entry]) => `${changedFieldLabels[field] || field}: ${auditValueText(entry, field)}`).join(', ')}}`;
+  }
+  const text = String(value).replace(/\s+/g, ' ').trim();
+  return `„${text.length > 90 ? `${text.slice(0, 87)}…` : text}”`;
+}
+function describeAuditAction(action, resource, name, body, changedFields) {
+  const target = resourceLabels[resource] || resource;
+  const namedTarget = name ? `: ${name}` : '';
+  if (action === 'approve') return `Regisztráció jóváhagyása${namedTarget}`;
+  if (action === 'reject') return `Regisztráció elutasítása${namedTarget}`;
+  if (action === 'ban') return `Felhasználó kitiltása${namedTarget}`;
+  if (action === 'unban') return `Felhasználó kitiltásának feloldása${namedTarget}`;
+  if (action === 'create') {
+    const fields = auditFieldSummary(body, changedFields);
+    return `Új ${target} létrehozása${namedTarget}${fields.length ? ` · Megadott mezők: ${fields.join(', ')}` : ''}`;
+  }
+  if (action === 'delete') return `${target[0].toUpperCase()}${target.slice(1)} törlése${namedTarget}`;
+  const changes = auditFieldSummary(body, changedFields);
+  const transitions = changedFields.map((change) => {
+    if (typeof change === 'string') return `${changedFieldLabels[change] || change} megadva`;
+    if (change.key === 'password') return 'jelszó megváltozott';
+    if (change.key === 'banReason') return 'kitiltási indok módosult (tartalma rejtett)';
+    return `${changedFieldLabels[change.key] || change.key}: ${auditValueText(change.from, change.key)} → ${auditValueText(change.to, change.key)}`;
+  });
+  return `${target[0].toUpperCase()}${target.slice(1)} módosítása${namedTarget}${changes.length ? ` · Módosítás: ${transitions.join('; ')}` : ' · Nem változott adat'}`;
+}
+async function auditResourceName(resource, segments, body = {}) {
+  try {
+    if (resource === 'users') {
+      const user = segments[1] ? await User.findById(segments[1]).select('nickname username').lean() : null;
+      return String(body.nickname || user?.nickname || user?.username || '');
+    }
+    if (resource === 'parties') {
+      const party = segments[1] ? await Party.findById(segments[1]).select('title').lean() : null;
+      return String(body.title || party?.title || '');
+    }
+    if (resource === 'verification-requests') {
+      const user = segments[1] ? await User.findById(segments[1]).select('nickname username').lean() : null;
+      return String(user?.nickname || user?.username || '');
+    }
+    if (resource === 'items') {
+      const partyId = segments[1] || body.partyId;
+      const party = partyId ? await Party.findById(partyId).select('contributions.name').lean() : null;
+      const item = party?.contributions?.find((entry) => String(entry._id) === String(segments[2] || ''));
+      return String(body.name || item?.name || '');
+    }
+    if (resource === 'notifications') {
+      const notification = segments[1] ? await Notification.findById(segments[1]).select('message').lean() : null;
+      return String(body.message || notification?.message || '');
+    }
+    if (resource === 'messages') {
+      const message = segments[1] ? await PartyMessage.findById(segments[1]).select('text').lean() : null;
+      return String(body.text || message?.text || '');
+    }
+    return '';
+  } catch (_error) { return ''; }
+}
+
+router.use(async (req, res, next) => {
+  if (!['POST', 'PATCH', 'PUT', 'DELETE'].includes(req.method)) return next();
+  const segments = req.path.split('/').filter(Boolean);
+  const resource = segments[0] || 'unknown';
+  req.adminAuditAction = auditAction(req, resource, segments);
+  req.adminAuditResourceName = await auditResourceName(resource, segments, req.body || {});
+  req.adminAuditChangedFields = req.adminAuditAction === 'update'
+    ? await actuallyChangedFields(resource, segments, req.body || {})
+    : Object.keys(req.body || {});
+  req.adminAuditDescription = describeAuditAction(req.adminAuditAction, resource, req.adminAuditResourceName, req.body || {}, req.adminAuditChangedFields);
+  const sendJson = res.json.bind(res);
+  res.json = (body) => {
+    if (res.statusCode < 200 || res.statusCode >= 300) return sendJson(body);
+    const resourceId = req.params.itemId || req.params.id || req.params.userId || req.params.partyId
+      || body?.user?._id || body?.party?._id || body?.item?._id || body?.notification?._id || body?.message?._id || '';
+    const targetName = req.adminAuditResourceName || body?.user?.nickname || body?.party?.title
+      || body?.item?.name || body?.notification?.message || body?.message?.text || body?.message || body?.item?.name || '';
+    const description = req.adminAuditDescription || describeAuditAction(req.adminAuditAction, resource, targetName, req.body || {}, req.adminAuditChangedFields);
+    AdminAuditLog.create({ actor: req.user._id, method: req.method, action: req.adminAuditAction, description: description.slice(0, 600), resource, resourceId: String(resourceId), resourceName: String(targetName).slice(0, 240), statusCode: res.statusCode })
+      .then(() => sendJson(body))
+      .catch((error) => {
+        console.error('Nem sikerült rögzíteni az admin műveletet:', error.message);
+        sendJson(body);
+      });
+    return res;
+  };
+  next();
+});
 const userFields = 'email username nickname age avatar bio role isBanned banReason bannedAt settings friends friendRequests createdAt';
 const pageSize = 50;
 const pageFor = (req) => Math.max(1, Number.parseInt(req.query.page, 10) || 1);
@@ -16,7 +218,7 @@ const pagination = (page, total) => ({ page, pageSize, total, pages: Math.max(1,
 
 router.get('/verification-requests', async (_req, res, next) => {
   try {
-    const requests = await User.find({ role: 'user', verificationStatus: 'pending' }).select('email username nickname age createdAt').sort({ createdAt: 1 }).lean();
+    const requests = await User.find({ role: 'user', verificationStatus: 'pending' }).select('email username nickname age birthDate createdAt').sort({ createdAt: 1 }).lean();
     res.json({ requests });
   } catch (error) { next(error); }
 });
@@ -69,11 +271,45 @@ router.post('/verification-requests/:id/decision', async (req, res, next) => {
 
 router.get('/overview', async (_req, res, next) => {
   try {
-    const [users, parties, notifications, messages, publicParties, admins] = await Promise.all([
+    const [users, parties, notifications, messages, publicParties, admins, pendingVerifications] = await Promise.all([
       User.countDocuments(), Party.countDocuments(), Notification.countDocuments(), PartyMessage.countDocuments(),
-      Party.countDocuments({ visibility: 'public' }), User.countDocuments({ role: 'admin' })
+      Party.countDocuments({ visibility: 'public' }), User.countDocuments({ role: 'admin' }),
+      User.countDocuments({ role: 'user', verificationStatus: 'pending' })
     ]);
-    res.json({ stats: { users, parties, notifications, messages, publicParties, admins } });
+    res.json({ stats: { users, parties, notifications, messages, publicParties, admins, pendingVerifications } });
+  } catch (error) { next(error); }
+});
+
+router.get('/options', async (_req, res, next) => {
+  try {
+    const [users, parties] = await Promise.all([
+      User.find().select('nickname username email').sort({ nickname: 1 }).limit(5000).lean(),
+      Party.find().select('title date location').sort({ date: -1 }).limit(5000).lean()
+    ]);
+    res.json({
+      users: users.map(({ _id, nickname, username, email }) => ({ _id, nickname, username, email })),
+      parties: parties.map(({ _id, title, date, location }) => ({ _id, title, date, location }))
+    });
+  } catch (error) { next(error); }
+});
+
+router.get('/audit-logs', async (req, res, next) => {
+  try {
+    const page = pageFor(req);
+    const search = escapedSearch(req.query.q);
+    const conditions = [];
+    if (search) conditions.push({ $or: [{ resource: new RegExp(search, 'i') }, { resourceId: new RegExp(search, 'i') }, { resourceName: new RegExp(search, 'i') }, { description: new RegExp(search, 'i') }, { method: new RegExp(search, 'i') }] });
+    if (['create', 'update', 'delete', 'approve', 'reject', 'ban', 'unban'].includes(req.query.action)) conditions.push({ action: req.query.action });
+    const filter = conditions.length ? { $and: conditions } : {};
+    const [auditLogs, total] = await Promise.all([
+      AdminAuditLog.find(filter).populate('actor', 'nickname username email').sort({ createdAt: -1 }).skip((page - 1) * pageSize).limit(pageSize).lean(),
+      AdminAuditLog.countDocuments(filter)
+    ]);
+    const logsWithNames = await Promise.all(auditLogs.map(async (log) => ({
+      ...log,
+      resourceName: log.resourceName || await auditResourceName(log.resource, [log.resource, log.resourceId])
+    })));
+    res.json({ auditLogs: logsWithNames, pagination: pagination(page, total) });
   } catch (error) { next(error); }
 });
 
@@ -274,13 +510,31 @@ router.get('/notifications', async (req, res, next) => {
     const page = pageFor(req);
     const search = escapedSearch(req.query.q);
     const filter = search ? { $or: [{ message: new RegExp(search, 'i') }, { type: new RegExp(search, 'i') }] } : {};
-    const [notifications, total] = await Promise.all([Notification.find(filter).populate('recipient', 'username nickname').populate('sender', 'username nickname').sort({ createdAt: -1 }).skip((page - 1) * pageSize).limit(pageSize).lean(), Notification.countDocuments(filter)]);
+    const [notifications, total] = await Promise.all([Notification.find(filter).populate('recipient', 'username nickname').populate('sender', 'username nickname').populate('targetUser', 'username nickname').populate('party', 'title').sort({ createdAt: -1 }).skip((page - 1) * pageSize).limit(pageSize).lean(), Notification.countDocuments(filter)]);
     res.json({ notifications, pagination: pagination(page, total) });
   } catch (error) { next(error); }
 });
 
+async function broadcastNotification(messageValue, typeValue) {
+  const message = typeof messageValue === 'string' ? messageValue.trim() : '';
+  const type = typeValue || 'system';
+  if (!message) throw Object.assign(new Error('Az értesítés szövege kötelező.'), { status: 400 });
+  if (message.length > 240) throw Object.assign(new Error('Az értesítés legfeljebb 240 karakteres lehet.'), { status: 400 });
+  if (!['party-invite', 'party-invite-request', 'friend-request', 'system'].includes(type)) throw Object.assign(new Error('Érvénytelen értesítéstípus.'), { status: 400 });
+  const recipients = await User.find().select('_id').lean();
+  if (!recipients.length) throw Object.assign(new Error('Nincs felhasználói fiók, akinek értesítést lehetne küldeni.'), { status: 400 });
+  await Notification.insertMany(recipients.map(({ _id }) => ({ recipient: _id, type, message, read: false })));
+  return { message: `Az értesítés elküldve ${recipients.length} felhasználónak.`, recipientCount: recipients.length };
+}
+
+router.post('/notifications/broadcast', async (req, res, next) => {
+  try { res.status(201).json(await broadcastNotification(req.body.message, req.body.type)); }
+  catch (error) { next(error); }
+});
+
 router.post('/notifications', async (req, res, next) => {
   try {
+    if (req.body.recipient === 'all') return res.status(201).json(await broadcastNotification(req.body.message, req.body.type));
     const notification = await Notification.create(req.body);
     res.status(201).json({ notification });
   } catch (error) { next(error); }

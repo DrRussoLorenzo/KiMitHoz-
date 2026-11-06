@@ -256,6 +256,72 @@ a {
   border-color: #a5a69e;
   box-shadow: 0 0 0 3px #d8ff7038;
 }
+.file-upload-field {
+  position: relative;
+}
+.file-upload-control {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  min-height: 76px;
+  padding: 13px 15px;
+  border: 1px dashed #c9c1df;
+  border-radius: 12px;
+  background: linear-gradient(135deg, #f8f6ff, #fff);
+  color: var(--primary);
+  transition: border-color 0.18s, background 0.18s, box-shadow 0.18s;
+}
+.file-upload-field:hover .file-upload-control,
+.file-upload-field:focus-within .file-upload-control {
+  border-color: var(--primary);
+  background: #f5f1ff;
+  box-shadow: 0 0 0 3px #6746e81a;
+}
+.file-upload-control > i:first-child {
+  display: grid;
+  place-items: center;
+  flex: 0 0 40px;
+  width: 40px;
+  height: 40px;
+  border-radius: 11px;
+  background: var(--lav);
+  font-size: 17px;
+}
+.file-upload-copy {
+  display: grid;
+  min-width: 0;
+  gap: 4px;
+}
+.file-upload-copy strong {
+  color: var(--ink);
+  font-size: 12px;
+}
+.file-upload-copy small {
+  overflow: hidden;
+  color: var(--muted);
+  font-size: 11px;
+  font-weight: 400;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.file-upload-arrow {
+  margin-left: auto;
+  font-size: 14px;
+}
+.file-upload-input {
+  position: absolute;
+  z-index: 1;
+  inset: 23px 0 0;
+  width: 100%;
+  height: calc(100% - 23px);
+  padding: 0 !important;
+  opacity: 0;
+  cursor: pointer;
+}
+.file-upload-field:focus-within .file-upload-control {
+  outline: 3px solid #6746e855;
+  outline-offset: 2px;
+}
 .button {
   border: 0;
   border-radius: 10px;
@@ -290,6 +356,7 @@ a {
 .button-small {
   padding: 8px 11px;
   font-size: 12px;
+  margin: 5px;
 }
 .full {
   width: 100%;
