@@ -24,7 +24,7 @@ const userSchema = new mongoose.Schema({
   friendRequests: [{ type: mongoose.Schema.Types.ObjectId, ref: 'User' }],
   settings: {
     theme: { type: String, enum: ['light', 'dark'], default: 'light' },
-    language: { type: String, enum: ['hu', 'en'], default: 'hu' },
+    language: { type: String, enum: ['hu', 'en', 'de'], default: 'hu' },
     notifications: { type: Boolean, default: true }
   }
 }, { timestamps: true });
@@ -67,8 +67,9 @@ const notificationSchema = new mongoose.Schema({
   recipient: { type: mongoose.Schema.Types.ObjectId, ref: 'User', required: true, index: true },
   sender: { type: mongoose.Schema.Types.ObjectId, ref: 'User' },
   party: { type: mongoose.Schema.Types.ObjectId, ref: 'Party' },
+  partyMessage: { type: mongoose.Schema.Types.ObjectId, ref: 'PartyMessage' },
   targetUser: { type: mongoose.Schema.Types.ObjectId, ref: 'User' },
-  type: { type: String, enum: ['party-invite', 'party-invite-request', 'friend-request', 'system'], default: 'system' },
+  type: { type: String, enum: ['party-invite', 'party-invite-request', 'friend-request', 'party-mention', 'system'], default: 'system' },
   inviteRequestStatus: { type: String, enum: ['pending', 'accepted', 'declined'] },
   message: { type: String, required: true, maxlength: 240 },
   read: { type: Boolean, default: false }
@@ -78,7 +79,8 @@ const notificationSchema = new mongoose.Schema({
 const partyMessageSchema = new mongoose.Schema({
   party: { type: mongoose.Schema.Types.ObjectId, ref: 'Party', required: true },
   sender: { type: mongoose.Schema.Types.ObjectId, ref: 'User', required: true },
-  text: { type: String, required: true, trim: true, maxlength: 1000 }
+  text: { type: String, required: true, trim: true, maxlength: 1000 },
+  mentionedUsers: [{ type: mongoose.Schema.Types.ObjectId, ref: 'User' }]
 }, { timestamps: true });
 partyMessageSchema.index({ party: 1, createdAt: -1 });
 

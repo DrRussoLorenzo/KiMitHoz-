@@ -1,5 +1,5 @@
 // A böngészőben élő munkamenet és az aktuális képernyő adatai.
-const state = { token: localStorage.getItem('KiMitHoz-token'), user: null, parties: [], discoverParties: [], archivedParties: [], friends: [], requests: [], notifications: [], view: 'home', authMode: 'login', activeParty: null, viewedProfile: null };
+const state = { token: localStorage.getItem('KiMitHoz-token'), user: null, parties: [], discoverParties: [], archivedParties: [], friends: [], requests: [], notifications: [], view: 'home', authMode: 'login', activeParty: null, viewedProfile: null, pendingChatMessageId: null };
 const $ = (s, r = document) => r.querySelector(s);
 const $$ = (s, r = document) => [...r.querySelectorAll(s)];
 const esc = (v = '') => String(v).replace(/[&<>"']/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
@@ -16,7 +16,8 @@ const avatarMarkup = (user, className = 'avatar', id = '') => {
   } catch (_error) { /* No image URL: show the initials fallback. */ }
   return `<span${id ? ` id="${esc(id)}"` : ''} class="${className}">${image}${initial(user?.nickname || '?')}</span>`;
 };
-const dateLabel = d => new Intl.DateTimeFormat('hu-HU', { month: 'long', day: 'numeric', hour: '2-digit', minute: '2-digit' }).format(new Date(d));
+const localeOf = () => ({ hu: 'hu-HU', en: 'en-US', de: 'de-DE' })[state.user?.settings?.language] || 'hu-HU';
+const dateLabel = d => new Intl.DateTimeFormat(localeOf(), { month: 'long', day: 'numeric', hour: '2-digit', minute: '2-digit' }).format(new Date(d));
 const dateValue = d => { const x = new Date(d); x.setMinutes(x.getMinutes() - x.getTimezoneOffset()); return x.toISOString().slice(0, 16); };
 let toastTimer;
 let discoveryMap;
@@ -41,13 +42,76 @@ async function api(path, options = {}) {
 function toast(message, error = false) { const node = $('#toast'); node.textContent = message; node.classList.toggle('error', error); node.classList.add('show'); clearTimeout(toastTimer); toastTimer = setTimeout(() => node.classList.remove('show'), 3000); }
 function logout(message = true) { state.token = null; state.user = null; localStorage.removeItem('KiMitHoz-token'); $('#app-shell').classList.add('hidden'); $('#auth-screen').classList.remove('hidden'); if (message) toast('Sikeresen kijelentkeztél.'); }
 function syncThemeToggle(theme) { const dark = theme === 'dark'; $('#theme-toggle').innerHTML = `<i class="fa-regular ${dark ? 'fa-sun' : 'fa-moon'}"></i>`; $('#theme-toggle').setAttribute('aria-label', dark ? 'Világos mód bekapcsolása' : 'Sötét mód bekapcsolása'); }
-function showApp() { $('#auth-screen').classList.add('hidden'); $('#app-shell').classList.remove('hidden'); $('#sidebar-name').textContent = state.user.nickname; $('#sidebar-username').textContent = `@${state.user.username}`; $('#sidebar-avatar').outerHTML = avatarMarkup(state.user, 'avatar', 'sidebar-avatar'); $('#admin-nav-link').classList.toggle('hidden', state.user.role !== 'admin'); document.body.classList.toggle('dark', state.user.settings?.theme === 'dark'); syncThemeToggle(state.user.settings?.theme); }
+function showApp() { $('#auth-screen').classList.add('hidden'); $('#app-shell').classList.remove('hidden'); $('#sidebar-name').textContent = state.user.nickname; $('#sidebar-username').textContent = `@${state.user.username}`; $('#sidebar-avatar').outerHTML = avatarMarkup(state.user, 'avatar', 'sidebar-avatar'); $('#admin-nav-link').classList.toggle('hidden', state.user.role !== 'admin'); document.body.classList.toggle('dark', state.user.settings?.theme === 'dark'); document.documentElement.lang = ({ hu: 'hu', en: 'en', de: 'de' })[state.user.settings?.language] || 'hu'; syncThemeToggle(state.user.settings?.theme); }
 function setAuthMode(mode) { state.authMode = mode; $$('.auth-tabs button').forEach(b => b.classList.toggle('active', b.dataset.auth === mode)); const reg = mode === 'register'; ['nickname-field', 'username-field', 'birth-date-field', 'identity-document-field', 'face-photo-field'].forEach(id => $(`#${id}`).classList.toggle('hidden', !reg)); ['nickname', 'username', 'birthDate', 'identityDocument', 'facePhoto'].forEach(name => { $('#auth-form').elements[name].required = reg; }); const today = new Date(); const dateBound = (yearsAgo) => { const date = new Date(today); date.setFullYear(date.getFullYear() - yearsAgo); return `${date.getFullYear()}-${String(date.getMonth() + 1).padStart(2, '0')}-${String(date.getDate()).padStart(2, '0')}`; }; $('#auth-form').elements.birthDate.min = dateBound(120); $('#auth-form').elements.birthDate.max = dateBound(16); $('#auth-title').textContent = reg ? 'Kezdődjön a közös sztori.' : 'Jó, hogy itt vagy.'; $('#auth-subtitle').textContent = reg ? 'Add meg a születési dátumod, töltsd fel a kért képeket; a kérelmedről az oldalon kapsz visszajelzést.' : 'Jelentkezz be, és nézd meg, mi készül.'; $('#auth-eyebrow').textContent = reg ? 'CSATLAKOZZ A KÖZÖSSÉGHEZ' : 'ÜDV ÚJRA ITTHON'; $('#auth-submit').innerHTML = `${reg ? 'Fiók létrehozása' : 'Bejelentkezés'} <span>→</span>`; }
 const statusOf = party => party.members?.find(m => (m.user?._id || m.user)?.toString() === state.user.id)?.status;
 async function refreshData() {
   const [mine, friends, notes] = await Promise.all([api('/parties/mine'), api('/users/friends'), api('/notifications')]);
   state.parties = mine.parties; state.friends = friends.friends; state.requests = friends.requests; state.notifications = notes.notifications;
   $('#notification-count').textContent = notes.unread; $('#notification-count').classList.toggle('hidden', !notes.unread); $('#notification-dot').classList.toggle('hidden', !notes.unread);
+}
+const appViews = new Set(['home', 'parties', 'discover', 'archive', 'friends', 'notifications', 'profile', 'friend-profile', 'party-detail']);
+function currentRoute() {
+  return {
+    app: 'kimithoz',
+    view: state.view,
+    partyId: state.view === 'party-detail' ? state.activeParty?._id || null : null,
+    profileId: state.view === 'friend-profile' ? state.viewedProfile?.id || state.viewedProfile?._id || null : null,
+    chatMessageId: state.view === 'party-detail' ? state.pendingChatMessageId || null : null
+  };
+}
+function saveRoute(mode = 'push') {
+  const route = currentRoute();
+  const previous = history.state;
+  if (mode === 'push' && previous?.app === route.app && previous.view === route.view && previous.partyId === route.partyId && previous.profileId === route.profileId && previous.chatMessageId === route.chatMessageId) return;
+  history[`${mode}State`](route, '', location.href);
+}
+async function navigateView(view, mode = 'push') {
+  if (!appViews.has(view)) return;
+  state.view = view;
+  if (view !== 'party-detail') state.pendingChatMessageId = null;
+  saveRoute(mode);
+  $('.sidebar').classList.remove('open');
+  await render();
+  if (view === 'notifications') api('/notifications/read', { method:'PATCH' }).then(refreshData).then(render).catch(() => {});
+}
+async function restoreRoute(route) {
+  if (!state.user) return;
+  if (!route || route.app !== 'kimithoz' || !appViews.has(route.view)) {
+    state.view = 'home';
+    state.activeParty = null;
+    state.viewedProfile = null;
+    state.pendingChatMessageId = null;
+    saveRoute('replace');
+    await render();
+    return;
+  }
+  try {
+    if (route.view === 'party-detail') {
+      if (!route.partyId) throw new Error('A buli nem található.');
+      const { party } = await api(`/parties/${encodeURIComponent(route.partyId)}`);
+      state.activeParty = party;
+      state.pendingChatMessageId = route.chatMessageId || null;
+    } else if (route.view === 'friend-profile') {
+      if (!route.profileId) throw new Error('A profil nem található.');
+      const { user } = await api(`/users/${encodeURIComponent(route.profileId)}`);
+      state.viewedProfile = user;
+      state.pendingChatMessageId = null;
+    } else {
+      state.pendingChatMessageId = null;
+    }
+    state.view = route.view;
+    await render();
+    if (route.view === 'notifications') api('/notifications/read', { method:'PATCH' }).then(refreshData).then(render).catch(() => {});
+  } catch (error) {
+    state.view = 'home';
+    state.activeParty = null;
+    state.viewedProfile = null;
+    state.pendingChatMessageId = null;
+    saveRoute('replace');
+    await render();
+    toast(error.message, true);
+  }
 }
 function heading(k, t, d, a = '') { return `<div class="page-heading"><div><span class="greeting-kicker">${k}</span><h1>${t}</h1><p>${d}</p></div>${a}</div>`; }
 function empty(icon, title, text, button = '') { return `<div class="empty-state"><div class="empty-icon">${icon}</div><h3>${title}</h3><p>${text}</p>${button}</div>`; }
@@ -73,9 +137,9 @@ function homePage() {
     <button class="button button-dark button-small" ${nextParty ? `data-action="view-party" data-party="${nextParty._id}"` : 'data-action="create"'}>${nextParty ? 'Részletek megnyitása' : 'Kezdjük el'} →</button>
   </div><span class="hero-shape"></span><span class="hero-emoji">${nextParty ? '🎉' : '🪩'}</span></section>`;
   const stats = `<div class="stats-grid">
-    <button type="button" class="stat-card" data-view="parties" aria-label="Közelgő bulik megnyitása"><span class="stat-icon">✳</span><span><strong>${upcoming.length}</strong><small>Közelgő buli</small></span></button>
-    <button type="button" class="stat-card" data-view="friends" aria-label="Barátok megnyitása"><span class="stat-icon">♧</span><span><strong>${state.friends.length}</strong><small>Barátod van itt</small></span></button>
-    <button type="button" class="stat-card" data-view="notifications" aria-label="Értesítések megnyitása"><span class="stat-icon">✉</span><span><strong>${state.notifications.filter((item) => !item.read).length}</strong><small>Új értesítés</small></span></button>
+    <button type="button" class="stat-card" data-view="parties" aria-label="Közelgő bulik megnyitása"><span class="stat-icon"><i class="fa-solid fa-martini-glass-citrus"></i></span><span><strong>${upcoming.length}</strong><small>Közelgő buli</small></span></button>
+    <button type="button" class="stat-card" data-view="friends" aria-label="Barátok megnyitása"><span class="stat-icon"><i class="fa-solid fa-user-friends"></i></span><span><strong>${state.friends.length}</strong><small>Barátod van itt</small></span></button>
+    <button type="button" class="stat-card" data-view="notifications" aria-label="Értesítések megnyitása"><span class="stat-icon"><i class="fa-solid fa-bell"></i></span><span><strong>${state.notifications.filter((item) => !item.read).length}</strong><small>Új értesítés</small></span></button>
   </div>`;
   const partyList = upcoming.length
     ? upcoming.slice(0, 3).map(card).join('')
@@ -89,7 +153,7 @@ function partiesPage() {
   const parties = state.parties.filter((party) => statusOf(party) !== 'declined' || party.host?._id === state.user.id);
   const content = parties.length
     ? parties.map(card).join('')
-    : empty('🎈', 'Még üres a naptárad', 'Szervezz egy bulit, vagy csatlakozz meghívóval.', '<button class="button button-lime button-small" data-action="join-code">Meghívókód megadása</button>');
+    : empty('<i class="fa-solid fa-calendar-xmark"></i>', 'Még üres a naptárad', 'Szervezz egy bulit, vagy csatlakozz meghívóval.', '<button class="button button-lime button-small" data-action="join-code">Meghívókód megadása</button>');
 
   return `${heading('A TI TERVEITEK', 'Bulijaim', 'Minden meghívásod és szervezésed egy helyen.', '<button class="button button-dark" data-action="create">＋ Új buli</button>')}<div class="party-grid">${content}</div>`;
 }
@@ -99,7 +163,7 @@ async function archivePage() {
   const content = parties.length ? parties.map((party) => {
     const images = party.galleryImages || [];
     return `<article class="archive-card"><div class="archive-card-head">${party.coverImage ? `<img src="${esc(party.coverImage)}" alt="" loading="lazy">` : '<span aria-hidden="true">🎉</span>'}<div><h2>${esc(party.title)}</h2><p>${dateLabel(party.date)} · ${esc(party.location)}</p><small>${images.length} / 30 kép · ${esc(party.host?.nickname || '')}</small></div></div>${images.length ? `<div class="party-gallery-grid">${images.map((image) => `<button type="button" class="gallery-photo" data-action="preview-gallery-image" aria-label="${esc(party.title)} – kép megnyitása"><img data-gallery-image="/parties/${encodeURIComponent(party._id)}/gallery/${encodeURIComponent(image._id)}/image" alt="${esc(party.title)} – feltöltött emlék" loading="lazy"></button>`).join('')}</div>` : '<p class="archive-no-images">Ehhez a bulihoz nem került fel kép.</p>'}</article>`;
-  }).join('') : empty('▧', 'Még nincs archivált buli', 'A bulik a dátumuk után egy héttel kerülnek ide a képeikkel együtt.');
+  }).join('') : empty('<i class="fa-solid fa-box-archive"></i>', 'Még nincs archivált buli', 'A bulik a dátumuk után egy héttel kerülnek ide a képeikkel együtt.');
   return `${heading('KÖZÖS EMLÉKEK', 'Galéria', 'A lezárult bulik és a hozzájuk feltöltött képek egy helyen.')}<div class="archive-grid">${content}</div>`;
 }
 function releaseGalleryObjectUrls() {
@@ -216,7 +280,7 @@ async function findPartyAddress() {
     syncPartyCoordinates(lat, lng);
   } catch (_error) { toast('A címkeresés most nem érhető el.', true); }
 }
-function friendsPage() { const people = state.friends.map(p => `<div class="person-row friend-profile-link" data-profile-user="${esc(p.id)}" role="button" tabindex="0" aria-label="${esc(p.nickname)} profiljának megnyitása">${avatarMarkup(p)}<div class="person-details"><strong>${esc(p.nickname)}</strong><small>@${esc(p.username)}</small></div><span class="profile-link-arrow" aria-hidden="true">→</span></div>`).join(''); const requests = state.requests.map(p => `<div class="person-row">${avatarMarkup(p)}<div class="person-details"><strong>${esc(p.nickname)}</strong><small>@${esc(p.username)} · felkérés</small></div><button class="button button-lime button-small" data-action="accept-friend" data-user="${p.id}">Elfogadás</button></div>`).join(''); return `${heading('JÓ TÁRSASÁG','Barátok','Találd meg a barátaid, és hívjátok össze a csapatot.')}<div class="content-grid"><section><div class="search-row"><input id="friend-search" class="search-input" placeholder="Keresés név vagy felhasználónév alapján"><button class="button button-dark" data-action="search-friends">Keresés</button></div><div id="friend-results" class="friends-list"></div><div class="friends-list">${people || empty('♧','Még nincsenek barátaid','Keress rájuk név alapján.')}</div></section><aside class="surface-card"><h2>Felkérések</h2>${requests || '<p class="muted">Nincs új felkérés.</p>'}</aside></div>`; }
+function friendsPage() { const people = state.friends.map(p => `<div class="person-row friend-profile-link" data-profile-user="${esc(p.id)}" role="button" tabindex="0" aria-label="${esc(p.nickname)} profiljának megnyitása">${avatarMarkup(p)}<div class="person-details"><strong>${esc(p.nickname)}</strong><small>@${esc(p.username)}</small></div><span class="profile-link-arrow" aria-hidden="true">→</span></div>`).join(''); const requests = state.requests.map(p => `<div class="person-row">${avatarMarkup(p)}<div class="person-details"><strong>${esc(p.nickname)}</strong><small>@${esc(p.username)} · felkérés</small></div><button class="button button-lime button-small" data-action="accept-friend" data-user="${p.id}">Elfogadás</button></div>`).join(''); return `${heading('JÓ TÁRSASÁG','Barátok','Találd meg a barátaid, és hívjátok össze a csapatot.')}<div class="content-grid"><section><div class="search-row"><input id="friend-search" class="search-input" placeholder="Keresés név vagy felhasználónév alapján"><button class="button button-dark" data-action="search-friends">Keresés</button></div><div id="friend-results" class="friends-list"></div><div class="friends-list">${people || empty('<i class="fa-solid fa-users"></i>','Még nincsenek barátaid','Keress rájuk név alapján.')}</div></section><aside class="surface-card"><h2>Felkérések</h2>${requests || '<p class="muted">Nincs új felkérés.</p>'}</aside></div>`; }
 function viewedProfilePage() {
   const profile = state.viewedProfile;
   const avatar = profile.avatar
@@ -233,7 +297,7 @@ function notificationsPage() {
     const actions = inviteRequest ? `<div class="notification-actions"><button class="button button-lime button-small" data-action="respond-invite-request" data-party="${notification.party._id}" data-notification="${notification._id}" data-status="accept">Elfogadás</button><button class="button button-outline button-small" data-action="respond-invite-request" data-party="${notification.party._id}" data-notification="${notification._id}" data-status="decline">Elutasítás</button></div>`
       : pendingInvite ? `<div class="notification-actions"><button class="button button-lime button-small" data-action="respond" data-party="${party._id}" data-status="going">Csatlakozom</button><button class="button button-outline button-small" data-action="respond" data-party="${party._id}" data-status="declined">Kihagyom</button></div>`
       : pendingFriend ? `<button class="button button-lime button-small" data-action="accept-friend" data-user="${notification.sender._id}">Visszaigazolás</button>` : '';
-    return `<article class="notification-row">${avatarMarkup(notification.sender || { nickname: 'K' })}<div class="notification-copy"><strong>${esc(notification.message)}</strong><small>${dateLabel(notification.createdAt)}${notification.read ? '' : ' · Új'}</small>${actions}</div></article>`;
+    return `<article class="notification-row notification-clickable${notification.read ? '' : ' is-unread'}" data-action="open-notification" data-notification-type="${esc(notification.type)}" data-party="${esc(notification.party?._id || '')}" data-chat-message="${esc(notification.partyMessage?._id || '')}" role="button" tabindex="0" aria-label="${esc(notification.message)} – megnyitás">${avatarMarkup(notification.sender || { nickname: 'K' })}<div class="notification-copy"><strong>${esc(notification.message)}</strong><small>${dateLabel(notification.createdAt)}${notification.read ? '' : ' · Új'}</small>${actions}</div></article>`;
   }).join('');
 
   return `${heading('MARADJ KÉPBEN', 'Értesítések', 'Meghívók és fontos hírek.', '<button class="button button-outline button-small" data-action="read-all">Olvasottnak jelölés</button>')}<div class="notification-list">${rows || empty('✉', 'Minden naprakész', 'Ha meghívnak egy buliba, itt fogod látni.')}</div>`;
@@ -242,7 +306,7 @@ function profilePage() {
   const avatar = state.user.avatar
     ? `<button type="button" class="profile-image-preview" data-action="preview-profile-image" data-image="${esc(state.user.avatar)}" aria-label="Profilkép megtekintése teljes méretben">${avatarMarkup(state.user, 'avatar profile-avatar')}<span>Kép megtekintése</span></button>`
     : avatarMarkup(state.user, 'avatar profile-avatar');
-  return `${heading('RÓLAD SZÓL','Profilom','Állítsd be a profilodat.')}<section class="surface-card"><form id="profile-form">${avatar}<label class="field">Profilkép URL-je<input name="avatar" type="url" maxlength="2048" value="${esc(state.user.avatar || '')}" placeholder="https://pelda.hu/profilkep.jpg"><small>Csak kép URL-jét add meg; üresen hagyva az alapértelmezett monogram jelenik meg.</small></label><label class="field">Becenév<input name="nickname" value="${esc(state.user.nickname)}" required></label><label class="field">Bemutatkozás<textarea name="bio">${esc(state.user.bio || '')}</textarea></label><div class="setting-row"><strong>Sötét megjelenés</strong><input type="checkbox" name="theme" ${state.user.settings?.theme === 'dark' ? 'checked' : ''}></div><div class="setting-row"><strong>Értesítések</strong><input type="checkbox" name="notifications" ${state.user.settings?.notifications !== false ? 'checked' : ''}></div><button class="button button-dark" type="submit">Mentés</button><button class="button button-outline" type="button" data-action="logout">Kijelentkezés</button></form></section>`;
+  return `${heading('RÓLAD SZÓL','Profilom','Állítsd be a profilodat.')}<section class="surface-card"><form id="profile-form"><div id="profile-avatar-preview">${avatar}</div><label class="field file-upload-field">Profilkép feltöltése<span class="file-upload-control"><i class="fa-regular fa-image" aria-hidden="true"></i><span class="file-upload-copy"><strong>Válassz egy képet</strong><small class="file-upload-name">JPG, PNG vagy WebP · legfeljebb 5 MB</small></span><i class="fa-solid fa-arrow-up-from-bracket file-upload-arrow" aria-hidden="true"></i></span><input id="profile-avatar-upload" class="file-upload-input" type="file" accept="image/jpeg,image/png,image/webp" aria-label="Profilkép feltöltése"></label><label class="field">Vagy profilkép URL-je<input name="avatar" type="url" maxlength="2048" value="${esc(state.user.avatar || '')}" placeholder="https://pelda.hu/profilkep.jpg"><small>URL megadása esetén a Mentés gombbal módosíthatod a képet.</small></label><label class="field">Becenév<input name="nickname" value="${esc(state.user.nickname)}" required></label><label class="field">Bemutatkozás<textarea name="bio">${esc(state.user.bio || '')}</textarea></label><div class="setting-row"><strong>Sötét megjelenés</strong><input type="checkbox" name="theme" ${state.user.settings?.theme === 'dark' ? 'checked' : ''}></div><div class="setting-row"><strong>Nyelv</strong><select name="language" aria-label="Felület nyelve"><option value="hu" ${state.user.settings?.language === 'hu' || !state.user.settings?.language ? 'selected' : ''}>Magyar</option><option value="en" ${state.user.settings?.language === 'en' ? 'selected' : ''}>English</option><option value="de" ${state.user.settings?.language === 'de' ? 'selected' : ''}>Deutsch</option></select></div><div class="setting-row"><strong>Értesítések</strong><input type="checkbox" name="notifications" ${state.user.settings?.notifications !== false ? 'checked' : ''}></div><button class="button button-dark" type="submit">Mentés</button><button class="button button-outline" type="button" data-action="logout">Kijelentkezés</button></form></section>`;
 }
 function openImageViewer(imageUrl) {
   if (typeof imageUrl === 'string' && imageUrl.startsWith('blob:')) {
@@ -254,22 +318,31 @@ function openImageViewer(imageUrl) {
   if (!['http:', 'https:'].includes(url.protocol)) return;
   $('#modal-root').innerHTML = `<div class="image-viewer-backdrop" data-action="dismiss-image-viewer" role="presentation"><button type="button" class="image-viewer-close" data-action="close-image-viewer" aria-label="Bezárás">×</button><img class="image-viewer-image" src="${esc(url.href)}" alt="Profilkép teljes méretben"><span class="image-viewer-hint">Kattints a bezáráshoz vagy nyomj Esc-et</span></div>`;
 }
-async function openParty(id) { const { party } = await api(`/parties/${id}`); state.activeParty = party; state.view = 'party-detail'; await render(); }
-function chatTime(value) { return new Intl.DateTimeFormat('hu-HU', { hour: '2-digit', minute: '2-digit' }).format(new Date(value)); }
+async function openParty(id, historyMode = 'push') { const { party } = await api(`/parties/${encodeURIComponent(id)}`); state.activeParty = party; state.view = 'party-detail'; saveRoute(historyMode); await render(); }
+function chatTime(value) { return new Intl.DateTimeFormat(localeOf(), { hour: '2-digit', minute: '2-digit' }).format(new Date(value)); }
 async function refreshPartyChat(partyId, scrollToBottom = false, showError = false) {
   if (partyChatLoading || state.view !== 'party-detail' || state.activeParty?._id !== partyId) return;
   const container = $('#party-chat-messages');
   if (!container) return;
   partyChatLoading = true;
+  const targetMessageId = state.pendingChatMessageId;
   const wasAtBottom = scrollToBottom || container.scrollHeight - container.scrollTop - container.clientHeight < 60;
   try {
-    const { messages } = await api(`/parties/${encodeURIComponent(partyId)}/chat/messages`);
+    const query = targetMessageId ? `?messageId=${encodeURIComponent(targetMessageId)}` : '';
+    const { messages } = await api(`/parties/${encodeURIComponent(partyId)}/chat/messages${query}`);
     if (state.view !== 'party-detail' || state.activeParty?._id !== partyId) return;
     container.innerHTML = messages.map((message) => {
       const own = (message.sender?._id || message.sender)?.toString() === state.user.id;
-      return `<article class="chat-message ${own ? 'own' : ''}">${avatarMarkup(message.sender || { nickname: '?' }, 'chat-avatar')}<div class="chat-message-body"><div class="chat-message-meta"><strong>${esc(message.sender?.nickname || 'Résztvevő')}</strong><time datetime="${esc(message.createdAt)}">${chatTime(message.createdAt)}</time></div><p>${esc(message.text)}</p></div></article>`;
+      return `<article id="party-chat-message-${esc(message._id)}" class="chat-message ${own ? 'own' : ''}">${avatarMarkup(message.sender || { nickname: '?' }, 'chat-avatar')}<div class="chat-message-body"><div class="chat-message-meta"><strong>${esc(message.sender?.nickname || 'Résztvevő')}</strong><time datetime="${esc(message.createdAt)}">${chatTime(message.createdAt)}</time></div><p>${esc(message.text)}</p></div></article>`;
     }).join('') || '<p class="chat-empty">Még nincs üzenet. Kezdd el a beszélgetést!</p>';
-    if (wasAtBottom) container.scrollTop = container.scrollHeight;
+    if (targetMessageId) {
+      const target = $(`#party-chat-message-${CSS.escape(targetMessageId)}`, container);
+      if (target) {
+        target.classList.add('chat-message-highlight');
+        target.scrollIntoView({ behavior: 'smooth', block: 'center' });
+      }
+      if (state.pendingChatMessageId === targetMessageId) state.pendingChatMessageId = null;
+    } else if (wasAtBottom) container.scrollTop = container.scrollHeight;
   } catch (error) {
     if (showError) toast(error.message, true);
   } finally {
@@ -308,7 +381,10 @@ function renderParty(p) {
   const isHost = p.host?._id === state.user.id;
   const canChatParty = isHost || statusOf(p) === 'going';
   const attending = p.members.filter((member) => member.status === 'going');
-  const formatFt = amount => `${new Intl.NumberFormat('hu-HU').format(amount)} Ft`;
+  const mentionCandidates = attending.map((member) => member.user).filter((user) => user && (user._id || user).toString() !== state.user.id);
+  if (p.host && p.host._id !== state.user.id && !mentionCandidates.some((user) => (user._id || user).toString() === p.host._id)) mentionCandidates.push(p.host);
+  const chatMentionOptions = mentionCandidates.map((user) => `<button type="button" class="chat-mention-option" data-action="mention-user" data-user="${esc(user._id || user)}" data-username="${esc(user.username || user.nickname)}" data-nickname="${esc(user.nickname || 'Résztvevő')}"><strong>@${esc(user.username || user.nickname)}</strong><small>${esc(user.nickname || 'Résztvevő')}</small></button>`).join('') || '<p class="chat-mention-empty">Nincs megjelölhető résztvevő.</p>';
+  const formatFt = amount => `${new Intl.NumberFormat(localeOf()).format(amount)} Ft`;
   const totalItemPrice = p.contributions.reduce((total, item) => total + (Number(item.price) || 0), 0);
   const baseShare = attending.length ? Math.floor(totalItemPrice / attending.length) : 0;
   const remainder = attending.length ? totalItemPrice % attending.length : 0;
@@ -336,10 +412,10 @@ function renderParty(p) {
   return `${heading('A KÖZÖS TERV', 'Buli részletei', 'Minden fontos tudnivaló egy helyen.', '<button class="button button-outline button-small" data-view="parties">← Vissza</button>')}
     ${p.coverImage ? `<div class="party-detail-cover"><img src="${esc(p.coverImage)}" alt="${esc(p.title)} borítóképe"></div>` : ''}
     <section class="party-detail-head"><div><span class="pill">${p.visibility === 'public' ? 'Nyilvános' : 'Privát buli'}</span><h1>${esc(p.title)}</h1><span class="muted">Szervezi: ${esc(p.host?.nickname || '')}</span></div><div>${p.inviteCode ? `<button class="button button-dark button-small" data-action="copy-code" data-code="${p.inviteCode}">Kód: ${p.inviteCode} ⧉</button>` : ''}${join}${canLeave ? `<button class="button button-outline button-small leave-party-button" data-action="leave-party" data-party="${esc(p._id)}">Kilépés a buliból</button>` : ''}${isHost ? '<button class="button button-outline button-small" data-action="edit-party">Szerkesztés</button>' : ''}</div></section>
-    <div class="party-detail-columns"><section class="surface-card"><h2>Az eseményről</h2><div class="detail-line">⌚ ${dateLabel(p.date)}</div><div class="detail-line">📍 ${esc(p.location)}</div><div class="detail-line">👥 ${attending.length} / ${p.maxGuests} fő · ${p.ticketPrice ? `${p.ticketPrice} Ft` : 'Ingyenes'}</div><div class="detail-line">🔞 Minimum életkor: ${esc(p.minAge || 16)} év</div><div class="detail-line">📃 ${esc(p.description || 'Nincs leírás.')}</div><h2>Résztvevők</h2>${attendees}${inviteFriends}</section>
+    <div class="party-detail-columns"><section class="surface-card"><h2>Az eseményről</h2><div class="detail-line"><i class="fa-solid fa-clock"></i> ${dateLabel(p.date)}</div><div class="detail-line"><i class="fa-solid fa-location-dot"></i> ${esc(p.location)}</div><div class="detail-line"><i class="fa-solid fa-user-group"></i> ${attending.length} / ${p.maxGuests} fő · ${p.ticketPrice ? `${p.ticketPrice} Ft` : 'Ingyenes'}</div><div class="detail-line"><i class="fa-solid fa-child"></i> Minimum életkor: ${esc(p.minAge || 16)} év</div><div class="detail-line"><i class="fa-solid fa-file-lines"></i> ${esc(p.description || 'Nincs leírás.')}</div><h2>Résztvevők</h2>${attendees}${inviteFriends}</section>
     <section class="surface-card"><div class="contribution-heading"><h2>Ki mit hoz?</h2><button type="button" class="button button-outline button-small" data-action="toggle-cost-summary" aria-expanded="false">Összegzés</button></div>${costSummary}${isHost || statusOf(p) === 'going' ? '<form id="item-form" class="form-grid"><label class="field span-two">Tétel neve<input name="name" required maxlength="100"></label><label class="field">Ikon<input name="icon" value="🍽️" maxlength="2048" placeholder="Emoji vagy kép URL-je" aria-label="Tétel ikonja: emoji vagy kép URL-je" required><small>Csak egy emoji vagy http(s) kép URL adható meg.</small></label><label class="field">Mennyiség<input name="quantity" type="number" min="1" max="1000" step="1" value="1" required></label><label class="field">Ár (Ft)<input name="price" type="number" min="0" max="1000000" step="1" value="0" required></label><label class="field">Kategória<select name="category"><option value="étel">Étel</option><option value="ital">Ital</option><option value="egyéb">Egyéb</option></select></label><button class="button button-lime button-small span-two">＋ Hozzáadás</button></form>' : ''}${items || '<p class="muted">Még nincs tétel.</p>'}<div class="contribution-total"><span>Tételek összesen</span><strong>${formatFt(totalItemPrice)}</strong></div></section></div>
     ${gallerySection}
-    ${canChatParty ? `<section class="surface-card party-chat"><div class="party-chat-heading"><div><h2>Beszélgetés</h2><p class="muted">A buli résztvevőinek közös chatje</p></div><span class="chat-live-indicator">● Frissül</span></div><div id="party-chat-messages" class="party-chat-messages" role="log" aria-live="polite" aria-label="Buli chat üzenetei"><p class="chat-empty">Üzenetek betöltése…</p></div><form id="party-chat-form" class="party-chat-form" data-party-id="${esc(p._id)}"><label class="sr-only" for="party-chat-input">Üzenet</label><textarea id="party-chat-input" name="text" rows="2" maxlength="1000" placeholder="Írj üzenetet…" required></textarea><button class="button button-dark" type="submit">Küldés <span aria-hidden="true">→</span></button></form></section>` : ''}`;
+    ${canChatParty ? `<section class="surface-card party-chat"><div class="party-chat-heading"><div><h2>Beszélgetés</h2><p class="muted">A buli résztvevőinek közös chatje</p></div><span class="chat-live-indicator">● Frissül</span></div><div id="party-chat-messages" class="party-chat-messages" role="log" aria-live="polite" aria-label="Buli chat üzenetei"><p class="chat-empty">Üzenetek betöltése…</p></div><form id="party-chat-form" class="party-chat-form" data-party-id="${esc(p._id)}" data-mentioned-user-ids="[]"><div class="chat-composer"><button type="button" class="button button-outline chat-mention-trigger" data-action="toggle-mention-picker" aria-label="Résztvevő megjelölése" aria-expanded="false">@</button><label class="sr-only" for="party-chat-input">Üzenet</label><textarea id="party-chat-input" name="text" rows="2" maxlength="1000" placeholder="Írj üzenetet…" required></textarea><div id="chat-mention-picker" class="chat-mention-picker hidden" role="group" aria-label="Megjelölhető résztvevők">${chatMentionOptions}</div></div><button class="button button-dark" type="submit">Küldés <span aria-hidden="true">→</span></button></form></section>` : ''}`;
 }
 function openModal(title, content) { $('#modal-root').innerHTML = `<div class="modal-backdrop" data-action="dismiss-modal"><section class="modal"><div class="modal-head"><h2>${title}</h2><button class="modal-close" data-action="close-modal">×</button></div>${content}</section></div>`; }
 // Az aktuális nézet HTML-jét rajzolja ki, majd szükség esetén inicializálja a térképet.
@@ -348,7 +424,7 @@ async function render() {
   partyChatTimer = null;
   releaseGalleryObjectUrls();
   const labels = { home: 'Áttekintés', parties: 'Bulijaim', discover: 'Felfedezés', archive: 'Galéria', friends: 'Barátok', notifications: 'Értesítések', profile: 'Profilom', 'friend-profile': 'Ismerős profilja', 'party-detail': 'Buli részletei' };
-  $('#breadcrumb').innerHTML = `${labels[state.view]} <span>/</span> Neked`;
+  $('#breadcrumb').innerHTML = `<button type="button" class="breadcrumb-link" data-view="${esc(state.view)}" aria-current="page">${labels[state.view]}</button><span aria-hidden="true">/</span><button type="button" class="breadcrumb-link" data-view="home">Neked</button>`;
   $$('.nav-link').forEach((link) => link.classList.toggle('active', link.dataset.view === state.view));
 
   const content = state.view === 'home' ? homePage()
@@ -374,16 +450,45 @@ function joinModal(prefill = '') { openModal('Csatlakozás meghívókóddal', `<
 async function searchFriends() { const q = $('#friend-search')?.value.trim(); if (!q) return; const { users } = await api(`/users/search?q=${encodeURIComponent(q)}`); $('#friend-results').innerHTML = users.map(p => `<div class="person-row">${avatarMarkup(p)}<strong>${esc(p.nickname)}</strong><button class="button button-outline button-small" data-action="send-friend" data-user="${p.id}">＋ Barát</button></div>`).join('') || '<p class="muted">Nincs találat.</p>'; }
 // Navigációs gombok és eseményműveletek közös eseménykezelője.
 document.addEventListener('click', async event => {
-  const nav = event.target.closest('[data-view]'); if (nav) { state.view = nav.dataset.view; $('.sidebar').classList.remove('open'); await render(); if (state.view === 'notifications') api('/notifications/read', { method:'PATCH' }).then(refreshData).then(render).catch(() => {}); return; }
+  const nav = event.target.closest('[data-view]'); if (nav) { await navigateView(nav.dataset.view); return; }
   const friendProfile = event.target.closest('[data-profile-user]');
   if (friendProfile) {
-    try { const { user } = await api(`/users/${encodeURIComponent(friendProfile.dataset.profileUser)}`); state.viewedProfile = user; state.view = 'friend-profile'; await render(); }
+    try { const { user } = await api(`/users/${encodeURIComponent(friendProfile.dataset.profileUser)}`); state.viewedProfile = user; state.view = 'friend-profile'; saveRoute(); await render(); }
     catch (error) { toast(error.message, true); }
     return;
   }
   const partyCard = event.target.closest('.party-card[data-party]'); if (partyCard) { await openParty(partyCard.dataset.party); return; }
   const button = event.target.closest('[data-action]'); if (!button) return; const action = button.dataset.action;
   try {
+    if (action === 'open-notification') {
+      if (button.dataset.notificationType === 'friend-request') { await navigateView('friends'); return; }
+      if (!button.dataset.party) return toast('Ehhez az értesítéshez nem tartozik megnyitható oldal.');
+      state.pendingChatMessageId = button.dataset.notificationType === 'party-mention' ? button.dataset.chatMessage || null : null;
+      await openParty(button.dataset.party);
+      return;
+    }
+    if (action === 'toggle-mention-picker') { const picker = $('#chat-mention-picker'); const expanded = picker.classList.toggle('hidden') === false; button.setAttribute('aria-expanded', String(expanded)); }
+    if (action === 'mention-user') {
+      const form = button.closest('#party-chat-form');
+      const input = $('#party-chat-input', form);
+      const username = button.dataset.username;
+      const mentionedUserIds = JSON.parse(form.dataset.mentionedUserIds || '[]');
+      if (!mentionedUserIds.includes(button.dataset.user)) {
+        const token = `@${username}`;
+        const start = input.selectionStart;
+        const end = input.selectionEnd;
+        const prefix = start > 0 && !/\s/.test(input.value[start - 1]) ? ' ' : '';
+        const suffix = ' ';
+        const insertion = `${prefix}${token}${suffix}`;
+        if (input.value.length + insertion.length - (end - start) > input.maxLength) return toast('Az üzenet elérte a maximális hosszát.', true);
+        input.setRangeText(insertion, start, end, 'end');
+        input.focus();
+        mentionedUserIds.push(button.dataset.user);
+        form.dataset.mentionedUserIds = JSON.stringify(mentionedUserIds);
+        button.disabled = true;
+        button.innerHTML = `<strong>✓ @${esc(username)}</strong><small>Megjelölve</small>`;
+      }
+    }
     if (action === 'create') partyModal();
     if (action === 'edit-party' && state.activeParty?.host?._id === state.user.id) partyModal(state.activeParty);
     if (action === 'join-code') joinModal($('#invite-code')?.value || '');
@@ -406,7 +511,7 @@ document.addEventListener('click', async event => {
     if (action === 'read-all') { await api('/notifications/read', { method:'PATCH' }); await refreshData(); await render(); }
     if (action === 'copy-code') { await navigator.clipboard.writeText(button.dataset.code); toast('Kód másolva.'); }
     if (action === 'join-public') { const { party } = await api(`/parties/${button.dataset.party}/join`, { method:'POST' }); await refreshData(); await openParty(party._id); }
-    if (action === 'leave-party' && window.confirm('Biztosan kilépsz ebből a buliból?')) { const partyId = button.dataset.party; const result = await api(`/parties/${encodeURIComponent(partyId)}/leave`, { method:'POST' }); state.activeParty = null; await refreshData(); state.view = 'parties'; await render(); toast(result.message); }
+    if (action === 'leave-party' && window.confirm('Biztosan kilépsz ebből a buliból?')) { const partyId = button.dataset.party; const result = await api(`/parties/${encodeURIComponent(partyId)}/leave`, { method:'POST' }); state.activeParty = null; await refreshData(); state.view = 'parties'; saveRoute('replace'); await render(); toast(result.message); }
     if (action === 'toggle-cost-summary') { const summary = $('#cost-summary'); summary.classList.toggle('hidden'); const expanded = !summary.classList.contains('hidden'); button.setAttribute('aria-expanded', String(expanded)); button.textContent = expanded ? 'Összegzés elrejtése' : 'Összegzés'; }
     if (action === 'delete-item' && window.confirm('Biztosan törlöd ezt a tételt?')) { await api(`/parties/${button.dataset.party}/items/${button.dataset.item}`, { method:'DELETE' }); await openParty(button.dataset.party); toast('A tétel törölve.'); }
     if (action === 'remove-member' && window.confirm('Biztosan eltávolítod ezt a résztvevőt a buliból?')) { await api(`/parties/${button.dataset.party}/members/${button.dataset.user}`, { method:'DELETE' }); await openParty(button.dataset.party); toast('A résztvevő eltávolítva a buliból.'); }
@@ -414,6 +519,10 @@ document.addEventListener('click', async event => {
 });
 document.addEventListener('keydown', event => {
   if (event.key === 'Escape' && $('#modal-root .image-viewer-backdrop')) $('#modal-root').innerHTML = '';
+  if ((event.key === 'Enter' || event.key === ' ') && event.target.matches('.notification-clickable')) {
+    event.preventDefault();
+    event.target.click();
+  }
   if (event.key === 'Enter' && !event.shiftKey && event.target.matches('#party-chat-input')) {
     event.preventDefault();
     event.target.form.requestSubmit();
@@ -422,6 +531,10 @@ document.addEventListener('keydown', event => {
     event.preventDefault();
     event.target.click();
   }
+});
+window.addEventListener('popstate', (event) => {
+  if (!state.user) return;
+  restoreRoute(event.state).catch((error) => toast(error.message, true));
 });
 // Belépés, buli létrehozás/szerkesztés, csatlakozás és profilmentés.
 document.addEventListener('submit', async event => {
@@ -434,15 +547,15 @@ document.addEventListener('submit', async event => {
         form.reset(); $$('.file-upload-name', form).forEach((label) => { label.textContent = 'JPG, PNG vagy WebP · legfeljebb 5 MB'; }); setAuthMode('login'); toast(result.message);
       } else {
         const result = await api('/auth/login', { method: 'POST', body: JSON.stringify(Object.fromEntries(new FormData(form))) });
-        state.token = result.token; state.user = { ...result.user, id:result.user.id || result.user._id }; localStorage.setItem('KiMitHoz-token', state.token); showApp(); await refreshData(); state.view = 'home'; await render();
+        state.token = result.token; state.user = { ...result.user, id:result.user.id || result.user._id }; localStorage.setItem('KiMitHoz-token', state.token); showApp(); await refreshData(); state.view = 'home'; saveRoute('replace'); await render();
       }
     }
     if (form.id === 'party-form') { event.preventDefault(); const data = Object.fromEntries(new FormData(form)); data.maxGuests = Number(data.maxGuests); data.ticketPrice = Number(data.ticketPrice); data.minAge = Number(data.minAge); const lat = data.coordinatesLat; const lng = data.coordinatesLng; delete data.coordinatesLat; delete data.coordinatesLng; data.coordinates = lat !== '' && lng !== '' ? { lat: Number(lat), lng: Number(lng) } : null; if (data.visibility === 'private') data.coordinates = null; const id = form.dataset.partyId; if (id) { const { party } = await api(`/parties/${id}`, { method:'PATCH', body:JSON.stringify(data) }); $('#modal-root').innerHTML = ''; await refreshData(); state.activeParty = party; await render(); toast('A buli adatai frissültek.'); } else { const { party } = await api('/parties', { method:'POST', body:JSON.stringify(data) }); $('#modal-root').innerHTML = ''; await refreshData(); await openParty(party._id); toast('A buli elkészült!'); } }
-    if (form.id === 'delete-party-form') { event.preventDefault(); const confirmation = new FormData(form).get('confirmation').trim(); if (confirmation !== form.dataset.partyTitle) { toast('A beírt név nem egyezik a buli nevével.', true); return; } await api(`/parties/${form.dataset.partyId}`, { method:'DELETE', body:JSON.stringify({ confirmation }) }); $('#modal-root').innerHTML = ''; state.activeParty = null; await refreshData(); state.view = 'parties'; await render(); toast('A buli törölve.'); }
+    if (form.id === 'delete-party-form') { event.preventDefault(); const confirmation = new FormData(form).get('confirmation').trim(); if (confirmation !== form.dataset.partyTitle) { toast('A beírt név nem egyezik a buli nevével.', true); return; } await api(`/parties/${form.dataset.partyId}`, { method:'DELETE', body:JSON.stringify({ confirmation }) }); $('#modal-root').innerHTML = ''; state.activeParty = null; await refreshData(); state.view = 'parties'; saveRoute('replace'); await render(); toast('A buli törölve.'); }
     if (form.id === 'join-form') { event.preventDefault(); const { party } = await api('/parties/join', { method:'POST', body:JSON.stringify(Object.fromEntries(new FormData(form))) }); $('#modal-root').innerHTML = ''; await refreshData(); await openParty(party._id); }
     if (form.id === 'item-form') { event.preventDefault(); const data = Object.fromEntries(new FormData(form)); data.price = Number(data.price); data.icon = data.icon.trim(); if (!emojiOnly.test(data.icon) && !isImageUrl(data.icon)) { form.elements.icon.setCustomValidity('Adj meg egyetlen emojit vagy http(s) kép URL-t.'); form.elements.icon.reportValidity(); return; } form.elements.icon.setCustomValidity(''); await api(`/parties/${state.activeParty._id}/items`, { method:'POST', body:JSON.stringify(data) }); await openParty(state.activeParty._id); }
-    if (form.id === 'party-chat-form') { event.preventDefault(); const text = new FormData(form).get('text').trim(); if (!text) return; await api(`/parties/${encodeURIComponent(form.dataset.partyId)}/chat/messages`, { method:'POST', body:JSON.stringify({ text }) }); form.reset(); await refreshPartyChat(form.dataset.partyId, true, true); }
-    if (form.id === 'profile-form') { event.preventDefault(); const d = Object.fromEntries(new FormData(form)); const { user } = await api('/users/me', { method:'PATCH', body:JSON.stringify({ nickname:d.nickname, avatar:d.avatar.trim(), bio:d.bio, settings:{ theme:form.elements.theme.checked ? 'dark' : 'light', notifications:form.elements.notifications.checked } }) }); state.user = { ...user, id:user.id || user._id }; showApp(); await refreshData(); await render(); toast('A profilod frissült.'); }
+    if (form.id === 'party-chat-form') { event.preventDefault(); const text = new FormData(form).get('text').trim(); if (!text) return; const mentionedUserIds = JSON.parse(form.dataset.mentionedUserIds || '[]'); await api(`/parties/${encodeURIComponent(form.dataset.partyId)}/chat/messages`, { method:'POST', body:JSON.stringify({ text, mentionedUserIds }) }); form.reset(); form.dataset.mentionedUserIds = '[]'; $$('.chat-mention-option', form).forEach((option) => { option.disabled = false; option.innerHTML = `<strong>@${esc(option.dataset.username)}</strong><small>${esc(option.dataset.nickname)}</small>`; }); await refreshPartyChat(form.dataset.partyId, true, true); }
+    if (form.id === 'profile-form') { event.preventDefault(); const d = Object.fromEntries(new FormData(form)); const { user } = await api('/users/me', { method:'PATCH', body:JSON.stringify({ nickname:d.nickname, avatar:d.avatar.trim(), bio:d.bio, settings:{ theme:form.elements.theme.checked ? 'dark' : 'light', language:d.language, notifications:form.elements.notifications.checked } }) }); state.user = { ...user, id:user.id || user._id }; showApp(); await refreshData(); await render(); toast('A profilod frissült.'); }
   } catch (error) { toast(error.message, true); }
 });
 // A privát/nyilvános kapcsoló vezérli a térképes helyválasztót.
@@ -461,6 +574,24 @@ document.addEventListener('change', event => {
     api(`/parties/${encodeURIComponent(partyId)}/gallery`, { method: 'POST', body: formData })
       .then(async ({ message }) => { await openParty(partyId); toast(message); })
       .catch(error => toast(error.message, true));
+    return;
+  }
+  if (event.target.id === 'profile-avatar-upload') {
+    const file = event.target.files?.[0];
+    if (!file) return;
+    const fileName = $('.file-upload-name', event.target.closest('.file-upload-field'));
+    fileName.textContent = file.name;
+    const formData = new FormData();
+    formData.append('image', file);
+    api('/users/me/avatar', { method: 'POST', body: formData })
+      .then(async ({ user }) => {
+        state.user = { ...user, id: user.id || user._id };
+        showApp();
+        await refreshData();
+        await render();
+        toast('A profilképed frissült.');
+      })
+      .catch(error => { fileName.textContent = 'JPG, PNG vagy WebP · legfeljebb 5 MB'; toast(error.message, true); });
     return;
   }
   if (event.target.id === 'party-cover-upload') {
@@ -506,7 +637,21 @@ document.addEventListener('input', event => {
 $$('.auth-tabs button').forEach(button => button.addEventListener('click', () => setAuthMode(button.dataset.auth)));
 $('#theme-toggle').addEventListener('click', async () => { try { const theme = document.body.classList.contains('dark') ? 'light' : 'dark'; const { user } = await api('/users/me', { method:'PATCH', body:JSON.stringify({ settings:{ theme } }) }); state.user = { ...user, id:user.id || user._id }; document.body.classList.toggle('dark', theme === 'dark'); syncThemeToggle(theme); applyMapTheme(); } catch (error) { toast(error.message, true); } });
 $('#create-party-top').addEventListener('click', () => partyModal());
-$('#sidebar-profile').addEventListener('click', async () => { state.view = 'profile'; await render(); });
+$('#sidebar-profile').addEventListener('click', async () => navigateView('profile'));
 $('#mobile-menu').addEventListener('click', () => $('.sidebar').classList.toggle('open'));
-async function boot() { if (!state.token) return; try { const { user } = await api('/auth/me'); state.user = { ...user, id:user.id || user._id }; showApp(); await refreshData(); await render(); } catch (_error) { logout(false); } }
+async function boot() {
+  if (!state.token) return;
+  try {
+    const { user } = await api('/auth/me');
+    state.user = { ...user, id:user.id || user._id };
+    showApp();
+    await refreshData();
+    if (history.state?.app === 'kimithoz') await restoreRoute(history.state);
+    else {
+      state.view = 'home';
+      saveRoute('replace');
+      await render();
+    }
+  } catch (_error) { logout(false); }
+}
 boot();

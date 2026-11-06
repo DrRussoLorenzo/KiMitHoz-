@@ -271,12 +271,13 @@ router.post('/verification-requests/:id/decision', async (req, res, next) => {
 
 router.get('/overview', async (_req, res, next) => {
   try {
-    const [users, parties, notifications, messages, publicParties, admins, pendingVerifications] = await Promise.all([
+    const [users, parties, notifications, messages, publicParties, admins, pendingVerifications, contentTotals] = await Promise.all([
       User.countDocuments(), Party.countDocuments(), Notification.countDocuments(), PartyMessage.countDocuments(),
       Party.countDocuments({ visibility: 'public' }), User.countDocuments({ role: 'admin' }),
-      User.countDocuments({ role: 'user', verificationStatus: 'pending' })
+      User.countDocuments({ role: 'user', verificationStatus: 'pending' }),
+      Party.aggregate([{ $group: { _id: null, items: { $sum: { $size: { $ifNull: ['$contributions', []] } } }, galleryImages: { $sum: { $size: { $ifNull: ['$galleryImages', []] } } } } }])
     ]);
-    res.json({ stats: { users, parties, notifications, messages, publicParties, admins, pendingVerifications } });
+    res.json({ stats: { users, parties, notifications, messages, publicParties, admins, pendingVerifications, items: contentTotals[0]?.items || 0, galleryImages: contentTotals[0]?.galleryImages || 0 } });
   } catch (error) { next(error); }
 });
 
@@ -502,6 +503,62 @@ router.delete('/items/:partyId/:itemId', async (req, res, next) => {
     item.deleteOne();
     await party.save();
     res.json({ message: 'A tétel törölve.' });
+  } catch (error) { next(error); }
+});
+
+router.get('/gallery', async (req, res, next) => {
+  try {
+    const page = pageFor(req);
+    const search = escapedSearch(req.query.q);
+    const pipeline = [
+      ...(search ? [{ $match: { title: new RegExp(search, 'i') } }] : []),
+      { $unwind: '$galleryImages' },
+      { $sort: { 'galleryImages.uploadedAt': -1, _id: -1 } }
+    ];
+    const [images, countResult] = await Promise.all([
+      Party.aggregate([...pipeline, { $skip: (page - 1) * pageSize }, { $limit: pageSize }, { $project: { _id: '$galleryImages._id', partyId: '$_id', partyTitle: '$title', uploadedBy: '$galleryImages.uploadedBy', uploadedAt: '$galleryImages.uploadedAt', format: '$galleryImages.format' } }]),
+      Party.aggregate([...pipeline, { $count: 'total' }])
+    ]);
+    const userIds = [...new Set(images.map((image) => String(image.uploadedBy)))];
+    const users = await User.find({ _id: { $in: userIds } }).select('username nickname').lean();
+    const userMap = new Map(users.map((user) => [String(user._id), user]));
+    res.json({ gallery: images.map((image) => ({ ...image, uploadedBy: userMap.get(String(image.uploadedBy)) || image.uploadedBy })), pagination: pagination(page, countResult[0]?.total || 0) });
+  } catch (error) { next(error); }
+});
+
+router.get('/gallery/:partyId/:imageId/image', async (req, res, next) => {
+  try {
+    const party = await Party.findById(req.params.partyId).select('galleryImages._id galleryImages.format galleryImages.version +galleryImages.filename');
+    const image = party?.galleryImages.id(req.params.imageId);
+    if (!image || !image.filename) return res.status(404).json({ message: 'A galériakép nem található.' });
+    if (isCloudinaryId(image.filename)) {
+      await sendAuthenticatedImage(res, toCloudinaryId(image.filename), image);
+      return;
+    }
+    if (path.basename(image.filename) !== image.filename) return res.status(404).json({ message: 'A galériakép nem található.' });
+    res.set('Cache-Control', 'private, no-store');
+    res.sendFile(path.join(__dirname, '../../private/party-gallery', image.filename), (error) => {
+      if (error && !res.headersSent) {
+        if (error.code === 'ENOENT') return res.status(404).json({ message: 'A galériakép fájlja nem található.' });
+        next(error);
+      }
+    });
+  } catch (error) { next(error); }
+});
+
+router.delete('/gallery/:partyId/:imageId', async (req, res, next) => {
+  try {
+    const party = await Party.findById(req.params.partyId).select('+galleryImages.filename');
+    const image = party?.galleryImages.id(req.params.imageId);
+    if (!image) return res.status(404).json({ message: 'A galériakép nem található.' });
+    const filename = image.filename;
+    image.deleteOne();
+    await party.save();
+    if (isCloudinaryId(filename)) await destroyImage(toCloudinaryId(filename), 'authenticated').catch(() => {});
+    else if (typeof filename === 'string' && path.basename(filename) === filename) {
+      await fs.promises.unlink(path.join(__dirname, '../../private/party-gallery', filename)).catch(() => {});
+    }
+    res.json({ message: 'A galériakép törölve.' });
   } catch (error) { next(error); }
 });
 

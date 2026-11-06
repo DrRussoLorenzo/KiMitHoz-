@@ -62,7 +62,7 @@
 
 .admin-stats {
     display: grid;
-    grid-template-columns: repeat(6, minmax(0, 1fr));
+    grid-template-columns: repeat(auto-fit, minmax(140px, 1fr));
     gap: 13px;
     margin-bottom: 23px
 }
@@ -909,4 +909,36 @@ body.admin-body.dark .admin-form-grid select {
     background: #2b253b;
     color: var(--ink);
     border-color: var(--line)
+}
+
+.admin-gallery-thumb {
+    display: block;
+    width: 76px;
+    height: 56px;
+    object-fit: cover;
+    border: 1px solid var(--line);
+    border-radius: 8px;
+    background: var(--paper)
+}
+
+.admin-gallery-open {
+    display: block;
+    padding: 0;
+    border: 0;
+    border-radius: 8px;
+    background: transparent;
+    cursor: zoom-in
+}
+
+.admin-gallery-open:focus-visible {
+    outline: 3px solid var(--primary);
+    outline-offset: 3px
+}
+
+.admin-gallery-open:hover .admin-gallery-thumb {
+    border-color: var(--primary)
+}
+
+.admin-gallery-image-error {
+    visibility: hidden
 }

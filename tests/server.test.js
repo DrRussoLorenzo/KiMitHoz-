@@ -13,7 +13,7 @@ const { afterAll, afterEach, beforeAll, beforeEach, describe, expect, it } = req
 const jwt = require('jsonwebtoken');
 const getRequest = require('./helpers/getRequest');
 const { clearTestDatabase, connectTestDatabase, disconnectTestDatabase } = require('./helpers/database');
-const { AdminAuditLog, Notification, Party, User } = require('../src/models');
+const { AdminAuditLog, Notification, Party, PartyMessage, User } = require('../src/models');
 const request = require('supertest');
 const { app } = require('../server');
 const { uploadImage, sendAuthenticatedImage } = require('../src/services/cloudinary');
@@ -62,6 +62,13 @@ describe('Szerver és adatbázis', () => {
     const response = await getRequest('/');
 
     expect(response.headers['content-type']).toMatch(/text\/html/);
+  });
+
+  it('a 18.png képet a publikus uploads útvonalon szolgálja ki', async () => {
+    const response = await getRequest('/uploads/18.png');
+
+    expect(response.headers['content-type']).toMatch(/image\/png/);
+    expect(response.body.length).toBeGreaterThan(0);
   });
 
   it('a hét napnál régebbi bulit archiválja és megjeleníti a Galériában', async () => {
@@ -183,6 +190,43 @@ describe('Szerver és adatbázis', () => {
     expect(uploadImage).toHaveBeenCalledWith(png, { folder: 'kimithoz/covers' });
   });
 
+  it('profilképet tölt fel, elmenti a profilra, és elutasítja a nem támogatott formátumot', async () => {
+    const user = await User.create({ email: 'avatar-upload@example.com', username: 'avatar_upload', nickname: 'Profilkép teszt', passwordHash: 'test-password-hash' });
+    const token = jwt.sign({ sub: user._id.toString() }, process.env.JWT_SECRET);
+    const png = Buffer.from('iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mP8/x8AAwMCAO+/l9sAAAAASUVORK5CYII=', 'base64');
+
+    const response = await request(app)
+      .post('/api/users/me/avatar')
+      .set('Authorization', `Bearer ${token}`)
+      .attach('image', png, { filename: 'avatar.png', contentType: 'image/png' })
+      .expect(201);
+
+    expect(response.body.user.avatar).toBe('https://res.cloudinary.com/test/image/upload/mock.jpg');
+    expect((await User.findById(user._id)).avatar).toBe(response.body.user.avatar);
+    expect(uploadImage).toHaveBeenCalledWith(png, { folder: 'kimithoz/avatars' });
+
+    await request(app)
+      .post('/api/users/me/avatar')
+      .set('Authorization', `Bearer ${token}`)
+      .attach('image', Buffer.from('not an image'), { filename: 'avatar.txt', contentType: 'text/plain' })
+      .expect(400);
+  });
+
+  it('a profil nyelvi beállítása magyar, angol és német lehet', async () => {
+    const user = await User.create({ email: 'language-setting@example.com', username: 'language_setting', nickname: 'Nyelv teszt', passwordHash: 'test-password-hash' });
+    const token = jwt.sign({ sub: user._id.toString() }, process.env.JWT_SECRET);
+
+    for (const language of ['hu', 'en', 'de']) {
+      const response = await request(app)
+        .patch('/api/users/me')
+        .set('Authorization', `Bearer ${token}`)
+        .send({ settings: { language } })
+        .expect(200);
+      expect(response.body.user.settings.language).toBe(language);
+      expect((await User.findById(user._id)).settings.language).toBe(language);
+    }
+  });
+
   it('a tételek mennyiségét 1–1000, árát 0–1 000 000 Ft közé korlátozza', async () => {
     const user = await User.create({
       email: 'tetel@example.com',
@@ -217,6 +261,107 @@ describe('Szerver és adatbázis', () => {
       .set('Authorization', `Bearer ${token}`)
       .send({ name: 'Túl drága', quantity: '1', price: 1000001 })
       .expect(400);
+  });
+
+  it('a chatben megjelölt résztvevők értesítést kapnak, más fiók nem jelölhető meg', async () => {
+    const sender = await User.create({ email: 'chat-sender@example.com', username: 'chat_sender', nickname: 'Chat küldő', passwordHash: 'test-password-hash' });
+    const mentioned = await User.create({ email: 'chat-mentioned@example.com', username: 'megjelolt', nickname: 'Megjelölt', passwordHash: 'test-password-hash' });
+    const muted = await User.create({ email: 'chat-muted@example.com', username: 'nemker', nickname: 'Némított', passwordHash: 'test-password-hash', settings: { notifications: false } });
+    const invited = await User.create({ email: 'chat-invited@example.com', username: 'meghivott', nickname: 'Meghívott', passwordHash: 'test-password-hash' });
+    const party = await Party.create({
+      title: 'Chatteszt buli', host: sender._id, date: new Date(Date.now() + 60 * 60 * 1000), location: 'Budapest',
+      members: [
+        { user: sender._id, status: 'going' },
+        { user: mentioned._id, status: 'going' },
+        { user: muted._id, status: 'going' },
+        { user: invited._id, status: 'invited' }
+      ]
+    });
+    const token = jwt.sign({ sub: sender._id.toString() }, process.env.JWT_SECRET);
+    const endpoint = `/api/parties/${party._id}/chat/messages`;
+
+    const response = await request(app)
+      .post(endpoint)
+      .set('Authorization', `Bearer ${token}`)
+      .send({ text: 'Szia @megjelolt és @nemker!', mentionedUserIds: [String(mentioned._id), String(muted._id)] })
+      .expect(201);
+
+    expect(response.body.message.mentionedUsers.map(String)).toEqual(expect.arrayContaining([String(mentioned._id), String(muted._id)]));
+    expect(await PartyMessage.countDocuments({ party: party._id })).toBe(1);
+    expect(await Notification.countDocuments({ recipient: mentioned._id, type: 'party-mention', party: party._id })).toBe(1);
+    expect(await Notification.countDocuments({ recipient: muted._id, type: 'party-mention', party: party._id })).toBe(0);
+    const notification = await Notification.findOne({ recipient: mentioned._id, type: 'party-mention' });
+    expect(notification.message).toContain('Chatteszt buli');
+    expect(notification.message).toContain('Szia @megjelolt');
+    expect(String(notification.partyMessage)).toBe(String(response.body.message._id));
+
+    await PartyMessage.insertMany(Array.from({ length: 105 }, (_, index) => ({
+      party: party._id,
+      sender: sender._id,
+      text: `Későbbi chat ${index}`,
+      createdAt: new Date(Date.now() + index * 1000),
+      updatedAt: new Date(Date.now() + index * 1000)
+    })));
+    const mentionedToken = jwt.sign({ sub: mentioned._id.toString() }, process.env.JWT_SECRET);
+    const targetChat = await request(app)
+      .get(`${endpoint}?messageId=${response.body.message._id}`)
+      .set('Authorization', `Bearer ${mentionedToken}`)
+      .expect(200);
+    expect(targetChat.body.messages).toHaveLength(51);
+    expect(targetChat.body.messages.some((message) => message._id === response.body.message._id)).toBe(true);
+
+    const inbox = await request(app)
+      .get('/api/notifications')
+      .set('Authorization', `Bearer ${mentionedToken}`)
+      .expect(200);
+    expect(inbox.body.notifications[0].partyMessage._id).toBe(response.body.message._id);
+
+    await request(app)
+      .post(endpoint)
+      .set('Authorization', `Bearer ${token}`)
+      .send({ text: 'Szia @meghivott!', mentionedUserIds: [String(invited._id)] })
+      .expect(400);
+    expect(await PartyMessage.countDocuments({ party: party._id })).toBe(106);
+  });
+
+  it('az admin áttekintő számolja és kezeli a galériaképeket', async () => {
+    const admin = await User.create({ email: 'gallery-admin@example.com', username: 'gallery_admin', nickname: 'Galéria admin', passwordHash: 'test-password-hash', role: 'admin' });
+    const uploader = await User.create({ email: 'gallery-uploader@example.com', username: 'gallery_uploader', nickname: 'Feltöltő', passwordHash: 'test-password-hash' });
+    const party = await Party.create({
+      title: 'Admin galériateszt', host: admin._id, date: new Date(Date.now() - 60 * 60 * 1000), location: 'Budapest',
+      contributions: [{ user: uploader._id, name: 'Üdítő' }],
+      galleryImages: [
+        { filename: 'cloudinary:gallery/one', format: 'png', uploadedBy: uploader._id },
+        { filename: 'cloudinary:gallery/two', format: 'jpg', uploadedBy: uploader._id }
+      ]
+    });
+    const token = jwt.sign({ sub: admin._id.toString() }, process.env.JWT_SECRET);
+
+    const overview = await request(app)
+      .get('/api/admin/overview')
+      .set('Authorization', `Bearer ${token}`)
+      .expect(200);
+    expect(overview.body.stats.items).toBe(1);
+    expect(overview.body.stats.galleryImages).toBe(2);
+
+    const gallery = await request(app)
+      .get('/api/admin/gallery')
+      .set('Authorization', `Bearer ${token}`)
+      .expect(200);
+    expect(gallery.body.gallery).toHaveLength(2);
+    expect(gallery.body.gallery[0]).toMatchObject({ partyTitle: 'Admin galériateszt', uploadedBy: expect.objectContaining({ nickname: 'Feltöltő' }) });
+    expect(gallery.body.gallery[0]).not.toHaveProperty('filename');
+
+    await request(app)
+      .get(`/api/admin/gallery/${party._id}/${gallery.body.gallery[0]._id}/image`)
+      .set('Authorization', `Bearer ${token}`)
+      .expect(200);
+
+    await request(app)
+      .delete(`/api/admin/gallery/${party._id}/${gallery.body.gallery[0]._id}`)
+      .set('Authorization', `Bearer ${token}`)
+      .expect(200);
+    expect((await Party.findById(party._id)).galleryImages).toHaveLength(1);
   });
 
   it('kiemeli a függő regisztrációkat és naplózza az adminisztrátori döntést', async () => {

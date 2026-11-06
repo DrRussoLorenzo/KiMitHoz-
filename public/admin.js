@@ -64,13 +64,19 @@ const config = {
       field('Ikon vagy kép URL', 'icon', item.icon || '✳')
     ]
   },
+  gallery: {
+    title: 'Galéria', endpoint: '/gallery', resultKey: 'gallery', readOnly: true, allowDelete: true, noAdd: true,
+    columns: ['Kép', 'Buli', 'Feltöltő', 'Feltöltés ideje'],
+    cells: item => [`<button type="button" class="admin-gallery-open" data-admin-gallery-open="/gallery/${encodeURIComponent(item.partyId)}/${encodeURIComponent(item._id)}/image" data-gallery-label="${esc(item.partyTitle)} galériaképe" aria-label="${esc(item.partyTitle)} képének megnyitása"><img class="admin-gallery-thumb" data-admin-gallery-image="/gallery/${encodeURIComponent(item.partyId)}/${encodeURIComponent(item._id)}/image" alt="" loading="lazy"></button>`, `<span class="record-primary">${esc(item.partyTitle)}</span>`, esc(labelOf(item.uploadedBy)), dateText(item.uploadedAt)],
+    fields: () => []
+  },
   notifications: {
     title: 'Értesítések', endpoint: '/notifications', columns: ['Üzenet', 'Címzett', 'Típus', 'Állapot'],
     cells: item => [esc(item.message), esc(labelOf(item.recipient)), esc(item.type), item.read ? 'Olvasott' : 'Olvasatlan'],
     fields: item => [
       field('Címzett', 'recipient', idOf(item.recipient), item._id ? 'lookup-user' : 'lookup-user-or-all', true, item._id ? '' : 'A „Minden felhasználónak” a függő és kitiltott fiókokat is tartalmazza.'), field('Feladó', 'sender', idOf(item.sender), 'lookup-user'),
       field('Buli', 'party', idOf(item.party), 'lookup-party'), field('Célfelhasználó', 'targetUser', idOf(item.targetUser), 'lookup-user'),
-      field('Típus', 'type', item.type || 'system', 'select', true, '', ['party-invite', 'party-invite-request', 'friend-request', 'system']),
+      field('Típus', 'type', item.type || 'system', 'select', true, '', ['party-invite', 'party-invite-request', 'friend-request', 'party-mention', 'system']),
       field('Meghívási kérelem állapota', 'inviteRequestStatus', item.inviteRequestStatus || '', 'select', false, '', ['', 'pending', 'accepted', 'declined']),
       field('Üzenet', 'message', item.message, 'textarea', true), field('Olvasott', 'read', Boolean(item.read), 'checkbox')
     ]
@@ -151,7 +157,8 @@ async function loadStats() {
   const { stats } = await request('/overview');
   const values = [
     ['Felhasználók', stats.users, 'users'], ['Bulik', stats.parties, 'parties'],
-    ['Nyilvános bulik', stats.publicParties, 'parties'], ['Értesítések', stats.notifications, 'notifications'],
+    ['Nyilvános bulik', stats.publicParties, 'parties'], ['Tételek', stats.items, 'items'],
+    ['Galériaképek', stats.galleryImages, 'gallery'], ['Értesítések', stats.notifications, 'notifications'],
     ['Chatüzenetek', stats.messages, 'messages']
   ];
   $('#admin-stats').innerHTML = `${values.map(([label, count, tab]) => `<button type="button" class="admin-stat admin-stat-link" data-admin-stat-tab="${tab}" aria-label="${label} kezelése"><strong>${Number(count).toLocaleString('hu-HU')}</strong><span>${label}</span><small>Megnyitás →</small></button>`).join('')}<button type="button" class="admin-stat admin-stat-pending ${stats.pendingVerifications ? 'has-pending' : ''}" data-admin-stat-tab="verification" aria-label="Függő regisztrációk ellenőrzése"><strong>${Number(stats.pendingVerifications).toLocaleString('hu-HU')}</strong><span>Várakozó regisztráció</span><small>${stats.pendingVerifications ? 'Ellenőrzésre vár →' : 'Nincs függő kérelem'}</small></button>`;
@@ -173,12 +180,27 @@ async function loadRecords() {
 function renderTable() {
   const cfg = config[activeTab];
   $('.admin-table').classList.toggle('admin-audit-table', activeTab === 'audit');
-  const actionColumn = cfg.readOnly ? '' : '<th>Műveletek</th>';
+  const actionColumn = cfg.readOnly && !cfg.allowDelete ? '' : '<th>Műveletek</th>';
   $('#admin-thead').innerHTML = `<tr>${cfg.columns.map(column => `<th>${column}</th>`).join('')}${actionColumn}</tr>`;
-  $('#admin-tbody').innerHTML = records.length ? records.map((item, index) => `<tr${activeTab === 'audit' ? ` class="admin-audit-row" data-audit-index="${index}" tabindex="0" aria-label="Műveleti naplóbejegyzés részleteinek megnyitása"` : ''}>${cfg.cells(item).map(cell => `<td>${cell}</td>`).join('')}${cfg.readOnly ? '' : `<td><div class="admin-row-actions">${activeTab === 'verification' ? `<button data-decision="approved" data-user="${esc(item._id)}">Elfogadás</button><button class="danger" data-decision="rejected" data-user="${esc(item._id)}">Elutasítás</button>` : `${activeTab === 'users' && item.role !== 'admin' ? `<button data-ban="${esc(item._id)}" data-banned="${Boolean(item.isBanned)}">${item.isBanned ? 'Feloldás' : 'Kitiltás'}</button>` : ''}<button data-edit="${esc(item._id)}">Szerkesztés</button><button class="danger" data-delete="${esc(item._id)}" ${activeTab === 'items' ? `data-party="${esc(item.partyId)}"` : ''}>Törlés</button>`}</div></td>`}</tr>`).join('') : `<tr><td class="admin-empty" colspan="${cfg.columns.length + (cfg.readOnly ? 0 : 1)}">Nincs megjeleníthető rekord.</td></tr>`;
+  $('#admin-tbody').innerHTML = records.length ? records.map((item, index) => `<tr${activeTab === 'audit' ? ` class="admin-audit-row" data-audit-index="${index}" tabindex="0" aria-label="Műveleti naplóbejegyzés részleteinek megnyitása"` : ''}>${cfg.cells(item).map(cell => `<td>${cell}</td>`).join('')}${cfg.readOnly && !cfg.allowDelete ? '' : `<td><div class="admin-row-actions">${cfg.allowDelete ? `<button class="danger" data-delete="${esc(item._id)}" data-party="${esc(item.partyId)}">Törlés</button>` : activeTab === 'verification' ? `<button data-decision="approved" data-user="${esc(item._id)}">Elfogadás</button><button class="danger" data-decision="rejected" data-user="${esc(item._id)}">Elutasítás</button>` : `${activeTab === 'users' && item.role !== 'admin' ? `<button data-ban="${esc(item._id)}" data-banned="${Boolean(item.isBanned)}">${item.isBanned ? 'Feloldás' : 'Kitiltás'}</button>` : ''}<button data-edit="${esc(item._id)}">Szerkesztés</button><button class="danger" data-delete="${esc(item._id)}" ${activeTab === 'items' ? `data-party="${esc(item.partyId)}"` : ''}>Törlés</button>`}</div></td>`}</tr>`).join('') : `<tr><td class="admin-empty" colspan="${cfg.columns.length + (cfg.readOnly && !cfg.allowDelete ? 0 : 1)}">Nincs megjeleníthető rekord.</td></tr>`;
+  if (activeTab === 'gallery') loadGalleryPreviews();
   $('#admin-page-info').textContent = `${pageData.total.toLocaleString('hu-HU')} rekord · ${pageData.page}. / ${pageData.pages}. oldal`;
   $('#admin-prev').disabled = pageData.page <= 1;
   $('#admin-next').disabled = pageData.page >= pageData.pages;
+}
+let galleryPreviewUrls = [];
+async function loadGalleryPreviews() {
+  galleryPreviewUrls.forEach(URL.revokeObjectURL);
+  galleryPreviewUrls = [];
+  await Promise.all($$('[data-admin-gallery-image]').map(async image => {
+    try {
+      const response = await fetch(`/api/admin${image.dataset.adminGalleryImage}`, { headers: { Authorization: `Bearer ${token}` } });
+      if (!response.ok) return image.classList.add('admin-gallery-image-error');
+      const objectUrl = URL.createObjectURL(await response.blob());
+      galleryPreviewUrls.push(objectUrl);
+      image.src = objectUrl;
+    } catch { image.classList.add('admin-gallery-image-error'); }
+  }));
 }
 async function openEditor(item = null) {
   if (!editorOptionsPromise) {
@@ -240,7 +262,7 @@ $('#admin-tabs').addEventListener('click', async event => {
   const button = event.target.closest('[data-admin-tab]'); if (!button) return;
   activeTab = button.dataset.adminTab; searchTerm = ''; auditActionFilter = ''; currentPage = 1; $('#admin-search').value = ''; $('#admin-audit-filter').value = '';
   $('#admin-audit-filter').classList.toggle('hidden', activeTab !== 'audit');
-  $('#admin-add').classList.toggle('hidden', activeTab === 'verification' || config[activeTab].readOnly);
+  $('#admin-add').classList.toggle('hidden', activeTab === 'verification' || config[activeTab].readOnly || config[activeTab].noAdd);
   document.querySelectorAll('[data-admin-tab]').forEach(tab => tab.classList.toggle('active', tab === button));
   await loadRecords();
 });
@@ -296,6 +318,21 @@ document.addEventListener('click', async event => {
     } catch (error) { toast(error.message, true); }
     return;
   }
+  const galleryImageButton = event.target.closest('[data-admin-gallery-open]');
+  if (galleryImageButton) {
+    try {
+      const response = await fetch(`/api/admin${galleryImageButton.dataset.adminGalleryOpen}`, { headers: { Authorization: `Bearer ${token}` } });
+      if (!response.ok) { const data = await response.json().catch(() => ({})); throw new Error(data.message || 'A kép betöltése nem sikerült.'); }
+      const imageBlob = await response.blob();
+      if (!imageBlob.type.startsWith('image/')) throw new Error('A szerver válasza nem képfájl.');
+      if (verificationPreviewUrl) URL.revokeObjectURL(verificationPreviewUrl);
+      verificationPreviewUrl = URL.createObjectURL(imageBlob);
+      verificationZoom = 1;
+      const label = galleryImageButton.dataset.galleryLabel || 'Galériakép';
+      $('#admin-modal-root').innerHTML = `<div class="modal-backdrop admin-modal" data-close-admin><section class="modal admin-image-modal" role="dialog" aria-modal="true" aria-label="${esc(label)}"><div class="modal-head"><h2>${esc(label)}</h2><button class="modal-close" type="button" data-close-admin aria-label="Bezárás">×</button></div><div class="admin-image-tools" aria-label="Nagyítás vezérlői"><button type="button" class="button button-outline button-small" data-image-zoom="out" aria-label="Kicsinyítés">−</button><output id="admin-zoom-level" aria-live="polite">100%</output><button type="button" class="button button-outline button-small" data-image-zoom="in" aria-label="Nagyítás">＋</button><button type="button" class="button button-outline button-small" data-image-zoom="reset">Visszaállítás</button></div><div class="admin-image-viewport"><img id="admin-preview-image" class="admin-image-preview" src="${verificationPreviewUrl}" alt="${esc(label)}" style="width:100%"></div></section></div>`;
+    } catch (error) { toast(error.message, true); }
+    return;
+  }
   const decision = event.target.closest('[data-decision]');
   if (decision) {
     const isApproval = decision.dataset.decision === 'approved';
@@ -321,10 +358,12 @@ document.addEventListener('click', async event => {
   const remove = event.target.closest('[data-delete]');
   if (!remove) return;
   const item = records.find(record => record._id === remove.dataset.delete);
-  const description = activeTab === 'users' ? `${item?.nickname} (${item?.email})` : item?.title || item?.message || item?.text || 'ezt a rekordot';
+  const description = activeTab === 'users' ? `${item?.nickname} (${item?.email})` : activeTab === 'gallery' ? `${item?.partyTitle} galériaképét` : item?.title || item?.message || item?.text || 'ezt a rekordot';
   if (!window.confirm(`Biztosan törlöd ${description} adatait? Ez nem vonható vissza.`)) return;
   try {
-    const endpoint = activeTab === 'items'
+    const endpoint = activeTab === 'gallery'
+      ? `/gallery/${encodeURIComponent(remove.dataset.party)}/${encodeURIComponent(remove.dataset.delete)}`
+      : activeTab === 'items'
       ? `/items/${encodeURIComponent(remove.dataset.party)}/${encodeURIComponent(remove.dataset.delete)}`
       : `${config[activeTab].endpoint}/${encodeURIComponent(remove.dataset.delete)}`;
     const result = await request(endpoint, { method: 'DELETE' }); toast(result.message || 'Törölve.'); await refresh();

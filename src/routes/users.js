@@ -1,8 +1,23 @@
 const router = require('express').Router();
+const multer = require('multer');
 const auth = require('../middleware/auth');
 const { User, Notification } = require('../models');
+const { uploadImage } = require('../services/cloudinary');
 
 router.use(auth);
+const avatarExtensions = { 'image/jpeg': '.jpg', 'image/png': '.png', 'image/webp': '.webp' };
+const avatarUpload = multer({
+  storage: multer.memoryStorage(),
+  limits: { fileSize: 5 * 1024 * 1024, files: 1 },
+  fileFilter: (_req, file, callback) => {
+    if (avatarExtensions[file.mimetype]) return callback(null, true);
+    callback(Object.assign(new Error('JPG, PNG vagy WebP profilképet tölts fel.'), { status: 400 }));
+  }
+});
+const receiveAvatar = (req, res, next) => avatarUpload.single('image')(req, res, (error) => {
+  if (error?.code === 'LIMIT_FILE_SIZE') error.status = 413;
+  next(error);
+});
 // Nyilvános profilmezők; a jelszóhash nem része a felhasználókártyának.
 const card = (user) => ({ id: user._id, username: user.username, nickname: user.nickname, age: user.age, avatar: user.avatar, bio: user.bio });
 
@@ -78,11 +93,21 @@ router.patch('/me', async (req, res, next) => {
     }
     if (req.body.settings) {
       if (['light', 'dark'].includes(req.body.settings.theme)) req.user.settings.theme = req.body.settings.theme;
-      if (['hu', 'en'].includes(req.body.settings.language)) req.user.settings.language = req.body.settings.language;
+      if (['hu', 'en', 'de'].includes(req.body.settings.language)) req.user.settings.language = req.body.settings.language;
       if (typeof req.body.settings.notifications === 'boolean') req.user.settings.notifications = req.body.settings.notifications;
     }
     await req.user.save();
     res.json({ user: { id: req.user._id, email: req.user.email, username: req.user.username, nickname: req.user.nickname, age: req.user.age, avatar: req.user.avatar, bio: req.user.bio, settings: req.user.settings } });
+  } catch (error) { next(error); }
+});
+
+router.post('/me/avatar', receiveAvatar, async (req, res, next) => {
+  try {
+    if (!req.file) return res.status(400).json({ message: 'Válassz ki egy JPG, PNG vagy WebP képet.' });
+    const { secureUrl } = await uploadImage(req.file.buffer, { folder: 'kimithoz/avatars' });
+    req.user.avatar = secureUrl;
+    await req.user.save();
+    res.status(201).json({ user: { id: req.user._id, email: req.user.email, username: req.user.username, nickname: req.user.nickname, age: req.user.age, avatar: req.user.avatar, bio: req.user.bio, settings: req.user.settings } });
   } catch (error) { next(error); }
 });
 

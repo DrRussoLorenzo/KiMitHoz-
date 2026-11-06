@@ -6,7 +6,7 @@ router.use(auth);
 // Legutóbbi értesítések és teljes, pontos olvasatlan darabszám.
 router.get('/', async (req, res, next) => {
   try {
-    const notifications = await Notification.find({ recipient: req.user._id }).populate('sender', 'username nickname avatar').populate('targetUser', 'username nickname avatar').populate('party', 'title date location').sort({ createdAt: -1 }).limit(40);
+    const notifications = await Notification.find({ recipient: req.user._id }).populate('sender', 'username nickname avatar').populate('targetUser', 'username nickname avatar').populate('party', 'title date location').populate('partyMessage', '_id').sort({ createdAt: -1 }).limit(40);
     const unread = await Notification.countDocuments({ recipient: req.user._id, read: false });
     res.json({ notifications, unread });
   } catch (error) { next(error); }

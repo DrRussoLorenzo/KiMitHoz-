@@ -73,19 +73,55 @@ router.get('/:id/chat/messages', async (req, res, next) => {
     const party = await Party.findById(req.params.id).select('host members');
     if (!party) return res.status(404).json({ message: 'A buli nem található.' });
     if (!canChat(party, req.user._id)) return res.status(403).json({ message: 'A chatet csak a buli résztvevői érhetik el.' });
-    const messages = await PartyMessage.find({ party: party._id }).sort({ createdAt: -1 }).limit(100).populate('sender', 'nickname avatar').lean();
-    res.json({ messages: messages.reverse() });
+    let messages;
+    const target = req.query.messageId && /^[a-f\d]{24}$/i.test(req.query.messageId)
+      ? await PartyMessage.findOne({ _id: req.query.messageId, party: party._id }).select('_id createdAt').lean()
+      : null;
+    if (target) {
+      const beforeFilter = { party: party._id, $or: [{ createdAt: { $lt: target.createdAt } }, { createdAt: target.createdAt, _id: { $lt: target._id } }] };
+      const afterFilter = { party: party._id, $or: [{ createdAt: { $gt: target.createdAt } }, { createdAt: target.createdAt, _id: { $gt: target._id } }] };
+      const [before, targetMessage, after] = await Promise.all([
+        PartyMessage.find(beforeFilter).sort({ createdAt: -1, _id: -1 }).limit(49).populate('sender', 'nickname avatar').lean(),
+        PartyMessage.findById(target._id).populate('sender', 'nickname avatar').lean(),
+        PartyMessage.find(afterFilter).sort({ createdAt: 1, _id: 1 }).limit(50).populate('sender', 'nickname avatar').lean()
+      ]);
+      messages = [...before.reverse(), targetMessage, ...after];
+    } else {
+      messages = await PartyMessage.find({ party: party._id }).sort({ createdAt: -1, _id: -1 }).limit(100).populate('sender', 'nickname avatar').lean();
+      messages.reverse();
+    }
+    res.json({ messages });
   } catch (error) { next(error); }
 });
 
 router.post('/:id/chat/messages', async (req, res, next) => {
   try {
-    const party = await Party.findById(req.params.id).select('host members');
+    const party = await Party.findById(req.params.id).select('host members title');
     if (!party) return res.status(404).json({ message: 'A buli nem található.' });
     if (!canChat(party, req.user._id)) return res.status(403).json({ message: 'A chatbe csak a buli résztvevői írhatnak.' });
     const text = typeof req.body.text === 'string' ? req.body.text.trim() : '';
     if (!text || text.length > 1000) return res.status(400).json({ message: 'Az üzenet 1–1000 karakter hosszú lehet.' });
-    const message = await PartyMessage.create({ party: party._id, sender: req.user._id, text });
+    const requestedMentions = req.body.mentionedUserIds === undefined ? [] : req.body.mentionedUserIds;
+    if (!Array.isArray(requestedMentions) || requestedMentions.length > 20) return res.status(400).json({ message: 'Legfeljebb 20 résztvevőt jelölhetsz meg egy üzenetben.' });
+    const allowedMentionIds = new Set([
+      String(party.host),
+      ...party.members.filter((member) => member.status === 'going').map((member) => String(member.user))
+    ]);
+    const mentionedUserIds = [...new Set(requestedMentions.map((id) => typeof id === 'string' ? id : ''))];
+    if (mentionedUserIds.some((id) => !/^[a-f\d]{24}$/i.test(id) || !allowedMentionIds.has(id) || id === String(req.user._id))) {
+      return res.status(400).json({ message: 'Csak a buli többi résztvevőjét jelölheted meg.' });
+    }
+    const mentionedUsers = mentionedUserIds.length
+      ? await User.find({ _id: { $in: mentionedUserIds } }).select('username settings.notifications').lean()
+      : [];
+    if (mentionedUsers.length !== mentionedUserIds.length || mentionedUsers.some((user) => !text.toLowerCase().includes(`@${user.username.toLowerCase()}`))) {
+      return res.status(400).json({ message: 'Az üzenetben is szerepeljen a megjelölt felhasználó @neve.' });
+    }
+    const message = await PartyMessage.create({ party: party._id, sender: req.user._id, text, mentionedUsers: mentionedUserIds });
+    if (mentionedUserIds.length) {
+      const notificationText = Array.from(`${req.user.nickname} megemlített a(z) ${party.title} buli chatjében: ${text}`).slice(0, 240).join('');
+      await Notification.insertMany(mentionedUsers.filter((user) => user.settings?.notifications !== false).map(({ _id }) => ({ recipient: _id, sender: req.user._id, party: party._id, partyMessage: message._id, type: 'party-mention', message: notificationText })));
+    }
     await message.populate('sender', 'nickname avatar');
     res.status(201).json({ message });
   } catch (error) { next(error); }
