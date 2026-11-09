@@ -103,13 +103,14 @@
     Bemutatkozás: { en: 'About me', de: 'Über mich' },
     'Sötét megjelenés': { en: 'Dark appearance', de: 'Dunkles Design' },
     'Téma színei': { en: 'Theme colors', de: 'Designfarben' },
-    'Válaszd ki az oldal három fő színét.': {
-      en: 'Choose the three main colors of the site.',
-      de: 'Wähle die drei Hauptfarben der Website.',
+    'Válaszd ki az oldal négy fő színét.': {
+      en: 'Choose the four main colors of the site.',
+      de: 'Wähle die vier Hauptfarben der Website.',
     },
-    'Elsődleges szín': { en: 'Primary color', de: 'Primärfarbe' },
-    'Kiemelő szín': { en: 'Accent color', de: 'Akzentfarbe' },
+    'Gombok színe': { en: 'Button color', de: 'Buttonfarbe' },
+    'Kijelölő szín (körvonal)': { en: 'Selection outline color', de: 'Farbe des Auswahlrahmens' },
     Háttérszín: { en: 'Background color', de: 'Hintergrundfarbe' },
+    'Menük színe': { en: 'Menu color', de: 'Menüfarbe' },
     'Kijelölt menü színe': { en: 'Selected menu color', de: 'Farbe des ausgewählten Menüs' },
     'Kijelölt menü háttérszíne': {
       en: 'Selected menu background color',

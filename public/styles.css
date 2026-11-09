@@ -341,7 +341,7 @@ body.dark .file-upload-control > i:first-child {
   cursor: pointer;
 }
 .file-upload-field:focus-within .file-upload-control {
-  outline: 3px solid #6746e855;
+  outline: 3px solid color-mix(in srgb, var(--selection-outline) 33%, transparent);
   outline-offset: 2px;
 }
 .button {
@@ -368,8 +368,8 @@ body.dark .file-upload-control > i:first-child {
   background: var(--primary-hover);
 }
 .button-lime {
-  background: var(--accent);
-  color: var(--ink);
+  background: var(--primary);
+  color: #fff;
 }
 .button-outline {
   background: transparent;
@@ -466,8 +466,12 @@ body.dark .file-upload-control > i:first-child {
 }
 .nav-link:hover,
 .nav-link.active {
-  background: var(--selection, #f0ecff);
+  background: var(--menu, #f0ecff);
   color: var(--ink);
+}
+.nav-link.active {
+  outline: 2px solid var(--selection-outline, var(--primary));
+  outline-offset: -2px;
 }
 .nav-link.active > span {
   color: var(--accent-strong);
@@ -785,12 +789,12 @@ body.dark .file-upload-control > i:first-child {
 }
 .stat-card:hover,
 .stat-card:focus-visible {
-  border-color: var(--accent);
+  border-color: var(--selection-outline, var(--accent));
   box-shadow: var(--shadow);
   transform: translateY(-2px);
 }
 .stat-card:focus-visible {
-  outline: 2px solid var(--accent);
+  outline: 2px solid var(--selection-outline, var(--accent));
   outline-offset: 3px;
 }
 .stat-icon {
@@ -1072,12 +1076,12 @@ body.dark .file-upload-control > i:first-child {
 }
 .notification-clickable:hover,
 .notification-clickable:focus-visible {
-  border-color: var(--primary);
+  border-color: var(--selection-outline, var(--primary));
   outline: none;
   transform: translateY(-1px);
 }
 .notification-clickable:focus-visible {
-  box-shadow: 0 0 0 3px color-mix(in srgb, var(--primary) 25%, transparent);
+  box-shadow: 0 0 0 3px color-mix(in srgb, var(--selection-outline, var(--primary)) 25%, transparent);
 }
 .notification-row.is-unread {
   border-color: #8f2abe;
@@ -1199,7 +1203,8 @@ body.dark .notification-row.is-unread {
 }
 .map-popup-button {
   border: 0;
-  background: var(--accent);
+  background: var(--primary);
+  color: #fff;
   border-radius: 6px;
   padding: 5px 8px;
   margin-top: 6px;
@@ -1629,7 +1634,7 @@ body.dark .party-map-popup .maplibregl-popup-content {
 }
 .chat-mention-option:hover,
 .chat-mention-option:focus-visible {
-  outline: none;
+  outline: 2px solid var(--selection-outline, var(--primary));
   background: var(--lav);
 }
 .chat-mention-option:disabled {
@@ -1653,7 +1658,7 @@ body.dark .party-map-popup .maplibregl-popup-content {
   padding: 11px 13px;
   border: 1px solid var(--line);
   border-radius: 10px;
-  outline-color: var(--accent);
+  outline-color: var(--selection-outline, var(--primary));
   background: var(--surface);
   color: var(--ink);
 }
@@ -1895,8 +1900,8 @@ body.dark .party-map-popup .maplibregl-popup-content {
 }
 .theme-preset:hover,
 .theme-preset:focus-visible {
-  border-color: var(--primary);
-  outline: 2px solid color-mix(in srgb, var(--primary) 25%, transparent);
+  border-color: var(--selection-outline, var(--primary));
+  outline: 2px solid color-mix(in srgb, var(--selection-outline, var(--primary)) 25%, transparent);
 }
 .theme-preset-swatch {
   display: block;
@@ -1960,7 +1965,7 @@ body.dark .search-input {
   color: var(--ink);
 }
 body.dark .nav-link.active {
-  background: var(--selection, #2b253b);
+  background: var(--menu, #2b253b);
   color: var(--ink);
 }
 body.dark .nav-link,
@@ -1995,8 +2000,8 @@ body.dark .button-outline {
 }
 body.dark .button-lime,
 body.dark .map-popup-button {
-  background: var(--accent);
-  color: #241d31;
+  background: var(--primary);
+  color: #fff;
 }
 body.dark .auth-panel {
   background: var(--paper);
@@ -2073,7 +2078,7 @@ body.dark .party-detail-head {
 }
 button:focus-visible,
 a:focus-visible {
-  outline: 3px solid var(--accent-strong);
+  outline: 3px solid var(--selection-outline, var(--accent-strong));
   outline-offset: 3px;
 }
 /* Reszponzív elrendezés: kisebb képernyőn a rácsok és menük átrendeződnek. */
