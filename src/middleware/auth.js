@@ -1,18 +1,28 @@
 const jwt = require('jsonwebtoken');
 const { User } = require('../models');
 
-module.exports = async function authenticate(req, res, next) {
-  const token = req.headers.authorization?.replace(/^Bearer\s+/i, '');
-  if (!token) return res.status(401).json({ message: 'A folytatáshoz jelentkezz be.' });
+/** Ellenőrzi a munkamenet tokent, a fiók állapotát és a jóváhagyást. */
+module.exports = async function hitelesites(keres, valasz, folytatas) {
+  const token = keres.headers.authorization?.replace(/^Bearer\s+/i, '');
+  if (!token) return valasz.status(401).json({ message: 'A folytatáshoz jelentkezz be.' });
   try {
-    const payload = jwt.verify(token, process.env.JWT_SECRET);
-    const user = await User.findById(payload.sub);
-    if (!user) return res.status(401).json({ message: 'A felhasználói fiók nem található.' });
-    if (user.isBanned && user.role !== 'admin') return res.status(403).json({ message: user.banReason ? `A fiókodat kitiltották: ${user.banReason}` : 'A fiókodat kitiltották.' });
-    if (user.role !== 'admin' && user.verificationStatus !== 'approved') return res.status(403).json({ message: 'A fiókod még nem kapta meg az adminisztrátori jóváhagyást.' });
-    req.user = user;
-    next();
-  } catch (_error) {
-    return res.status(401).json({ message: 'A munkamenet lejárt, jelentkezz be újra.' });
+    const tokenAdatok = jwt.verify(token, process.env.JWT_SECRET);
+    const felhasznalo = await User.findById(tokenAdatok.sub);
+    if (!felhasznalo)
+      return valasz.status(401).json({ message: 'A felhasználói fiók nem található.' });
+    if (felhasznalo.isBanned && felhasznalo.role !== 'admin')
+      return valasz.status(403).json({
+        message: felhasznalo.banReason
+          ? `A fiókodat kitiltották: ${felhasznalo.banReason}`
+          : 'A fiókodat kitiltották.',
+      });
+    if (felhasznalo.role !== 'admin' && felhasznalo.verificationStatus !== 'approved')
+      return valasz
+        .status(403)
+        .json({ message: 'A fiókod még nem kapta meg az adminisztrátori jóváhagyást.' });
+    keres.user = felhasznalo;
+    folytatas();
+  } catch (_hiba) {
+    return valasz.status(401).json({ message: 'A munkamenet lejárt, jelentkezz be újra.' });
   }
 };

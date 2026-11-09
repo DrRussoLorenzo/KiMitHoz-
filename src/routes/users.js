@@ -5,110 +5,217 @@ const { User, Notification } = require('../models');
 const { uploadImage } = require('../services/cloudinary');
 
 router.use(auth);
-const avatarExtensions = { 'image/jpeg': '.jpg', 'image/png': '.png', 'image/webp': '.webp' };
-const avatarUpload = multer({
+const profilkepKiterjesztesek = {
+  'image/jpeg': '.jpg',
+  'image/png': '.png',
+  'image/webp': '.webp',
+};
+const profilkepFeltoltes = multer({
   storage: multer.memoryStorage(),
   limits: { fileSize: 5 * 1024 * 1024, files: 1 },
-  fileFilter: (_req, file, callback) => {
-    if (avatarExtensions[file.mimetype]) return callback(null, true);
-    callback(Object.assign(new Error('JPG, PNG vagy WebP profilképet tölts fel.'), { status: 400 }));
-  }
+  fileFilter: (_keres, fajl, visszahivas) => {
+    if (profilkepKiterjesztesek[fajl.mimetype]) return visszahivas(null, true);
+    visszahivas(
+      Object.assign(new Error('JPG, PNG vagy WebP profilképet tölts fel.'), { status: 400 })
+    );
+  },
 });
-const receiveAvatar = (req, res, next) => avatarUpload.single('image')(req, res, (error) => {
-  if (error?.code === 'LIMIT_FILE_SIZE') error.status = 413;
-  next(error);
-});
+/** Profilkép-feltöltési hiba esetén a fájlméretkorlátot is HTTP-hibakóddá alakítja. */
+const profilkepFogadasa = (keres, valasz, folytatas) =>
+  profilkepFeltoltes.single('image')(keres, valasz, (hiba) => {
+    if (hiba?.code === 'LIMIT_FILE_SIZE') hiba.status = 413;
+    folytatas(hiba);
+  });
 // Nyilvános profilmezők; a jelszóhash nem része a felhasználókártyának.
-const card = (user) => ({ id: user._id, username: user.username, nickname: user.nickname, age: user.age, avatar: user.avatar, bio: user.bio });
+const nyilvanosAdatlap = (felhasznalo) => ({
+  id: felhasznalo._id,
+  username: felhasznalo.username,
+  nickname: felhasznalo.nickname,
+  age: felhasznalo.age,
+  avatar: felhasznalo.avatar,
+  bio: felhasznalo.bio,
+});
 
 // Ismerőslista és beérkezett felkérések.
-router.get('/friends', async (req, res, next) => {
+router.get('/friends', async (keres, valasz, folytatas) => {
   try {
-    const user = await User.findById(req.user.id).populate('friends', 'username nickname age avatar bio').populate('friendRequests', 'username nickname age avatar bio');
-    res.json({ friends: user.friends.map(card), requests: user.friendRequests.map(card) });
-  } catch (error) { next(error); }
+    const felhasznalo = await User.findById(keres.user.id)
+      .populate('friends', 'username nickname age avatar bio')
+      .populate('friendRequests', 'username nickname age avatar bio');
+    valasz.json({
+      friends: felhasznalo.friends.map(nyilvanosAdatlap),
+      requests: felhasznalo.friendRequests.map(nyilvanosAdatlap),
+    });
+  } catch (hiba) {
+    folytatas(hiba);
+  }
 });
 
 // Felhasználók keresése név vagy felhasználónév alapján.
-router.get('/search', async (req, res, next) => {
+router.get('/search', async (keres, valasz, folytatas) => {
   try {
-    const q = String(req.query.q || '').trim().replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
-    if (q.length < 2) return res.json({ users: [] });
-    const users = await User.find({ _id: { $ne: req.user.id }, $or: [{ username: new RegExp(q, 'i') }, { nickname: new RegExp(q, 'i') }] }).select('username nickname avatar bio').limit(12);
-    res.json({ users: users.map(card) });
-  } catch (error) { next(error); }
+    const keresesiSzoveg = String(keres.query.q || '')
+      .trim()
+      .replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+    if (keresesiSzoveg.length < 2) return valasz.json({ users: [] });
+    const talalatok = await User.find({
+      _id: { $ne: keres.user.id },
+      $or: [
+        { username: new RegExp(keresesiSzoveg, 'i') },
+        { nickname: new RegExp(keresesiSzoveg, 'i') },
+      ],
+    })
+      .select('username nickname avatar bio')
+      .limit(12);
+    valasz.json({ users: talalatok.map(nyilvanosAdatlap) });
+  } catch (hiba) {
+    folytatas(hiba);
+  }
 });
 
 // Csak az aktuális felhasználó ismerősei profilját adja vissza.
-router.get('/:id', async (req, res, next) => {
+router.get('/:id', async (keres, valasz, folytatas) => {
   try {
-    if (!req.user.friends.some((id) => id.equals(req.params.id))) return res.status(404).json({ message: 'A profil nem található.' });
-    const user = await User.findById(req.params.id).select('username nickname age avatar bio');
-    if (!user) return res.status(404).json({ message: 'A profil nem található.' });
-    res.json({ user: card(user) });
-  } catch (error) { next(error); }
+    if (!keres.user.friends.some((azonosito) => azonosito.equals(keres.params.id)))
+      return valasz.status(404).json({ message: 'A profil nem található.' });
+    const felhasznalo = await User.findById(keres.params.id).select(
+      'username nickname age avatar bio'
+    );
+    if (!felhasznalo) return valasz.status(404).json({ message: 'A profil nem található.' });
+    valasz.json({ user: nyilvanosAdatlap(felhasznalo) });
+  } catch (hiba) {
+    folytatas(hiba);
+  }
 });
 
 // Barátfelkérés elküldése; értesítést a címzett beállítása szerint küldünk.
-router.post('/friends/request/:id', async (req, res, next) => {
+router.post('/friends/request/:id', async (keres, valasz, folytatas) => {
   try {
-    const recipient = await User.findById(req.params.id);
-    if (!recipient || recipient.id === req.user.id) return res.status(404).json({ message: 'A felhasználó nem található.' });
-    if (req.user.friends.some((id) => id.equals(recipient._id))) return res.status(409).json({ message: 'Már barátok vagytok.' });
-    if (recipient.friendRequests.some((id) => id.equals(req.user._id))) return res.status(409).json({ message: 'A felkérés már elküldésre került.' });
-    recipient.friendRequests.addToSet(req.user._id);
-    await recipient.save();
-    if (recipient.settings.notifications) {
-      await Notification.create({ recipient: recipient._id, sender: req.user._id, type: 'friend-request', message: `${req.user.nickname} barátnak jelölt.` });
+    const cimzett = await User.findById(keres.params.id);
+    if (!cimzett || cimzett.id === keres.user.id)
+      return valasz.status(404).json({ message: 'A felhasználó nem található.' });
+    if (keres.user.friends.some((azonosito) => azonosito.equals(cimzett._id)))
+      return valasz.status(409).json({ message: 'Már barátok vagytok.' });
+    if (cimzett.friendRequests.some((azonosito) => azonosito.equals(keres.user._id)))
+      return valasz.status(409).json({ message: 'A felkérés már elküldésre került.' });
+    cimzett.friendRequests.addToSet(keres.user._id);
+    await cimzett.save();
+    if (cimzett.settings.notifications) {
+      await Notification.create({
+        recipient: cimzett._id,
+        sender: keres.user._id,
+        type: 'friend-request',
+        message: `${keres.user.nickname} barátnak jelölt.`,
+      });
     }
-    res.status(201).json({ message: 'Barátfelkérés elküldve.' });
-  } catch (error) { next(error); }
+    valasz.status(201).json({ message: 'Barátfelkérés elküldve.' });
+  } catch (hiba) {
+    folytatas(hiba);
+  }
 });
 
 // Felkérés elfogadása mindkét fél ismerőslistáján.
-router.post('/friends/requests/:id/accept', async (req, res, next) => {
+router.post('/friends/requests/:id/accept', async (keres, valasz, folytatas) => {
   try {
-    const sender = await User.findById(req.params.id);
-    if (!sender || !req.user.friendRequests.some((id) => id.equals(sender._id))) return res.status(404).json({ message: 'A felkérés nem található.' });
-    req.user.friendRequests.pull(sender._id); req.user.friends.addToSet(sender._id);
-    sender.friends.addToSet(req.user._id);
-    await Promise.all([req.user.save(), sender.save()]);
-    res.json({ message: 'Mostantól barátok vagytok.' });
-  } catch (error) { next(error); }
+    const felado = await User.findById(keres.params.id);
+    if (!felado || !keres.user.friendRequests.some((azonosito) => azonosito.equals(felado._id)))
+      return valasz.status(404).json({ message: 'A felkérés nem található.' });
+    keres.user.friendRequests.pull(felado._id);
+    keres.user.friends.addToSet(felado._id);
+    felado.friends.addToSet(keres.user._id);
+    await Promise.all([keres.user.save(), felado.save()]);
+    valasz.json({ message: 'Mostantól barátok vagytok.' });
+  } catch (hiba) {
+    folytatas(hiba);
+  }
 });
 
 // Csak a profil és a felhasználói beállítások módosíthatók itt.
-router.patch('/me', async (req, res, next) => {
+router.patch('/me', async (keres, valasz, folytatas) => {
   try {
-    const allowed = ['nickname', 'avatar', 'bio'];
-    for (const key of allowed) {
-      if (req.body[key] === undefined) continue;
-      const value = String(req.body[key]).trim();
-      if (key === 'avatar' && value) {
-        let imageUrl;
-        try { imageUrl = new URL(value); } catch (_error) { return res.status(400).json({ message: 'Adj meg egy érvényes profilkép URL-t.' }); }
-        if (!['http:', 'https:'].includes(imageUrl.protocol) || value.length > 2048) return res.status(400).json({ message: 'A profilkép URL-je HTTP vagy HTTPS cím legyen, legfeljebb 2048 karakterrel.' });
+    const modositthatoMezok = ['nickname', 'avatar', 'bio'];
+    for (const mezo of modositthatoMezok) {
+      if (keres.body[mezo] === undefined) continue;
+      const ertek = String(keres.body[mezo]).trim();
+      if (mezo === 'avatar' && ertek) {
+        let kepUrl;
+        try {
+          kepUrl = new URL(ertek);
+        } catch (_hiba) {
+          return valasz.status(400).json({ message: 'Adj meg egy érvényes profilkép URL-t.' });
+        }
+        if (!['http:', 'https:'].includes(kepUrl.protocol) || ertek.length > 2048)
+          return valasz.status(400).json({
+            message: 'A profilkép URL-je HTTP vagy HTTPS cím legyen, legfeljebb 2048 karakterrel.',
+          });
       }
-      req.user[key] = value;
+      keres.user[mezo] = ertek;
     }
-    if (req.body.settings) {
-      if (['light', 'dark'].includes(req.body.settings.theme)) req.user.settings.theme = req.body.settings.theme;
-      if (['hu', 'en', 'de'].includes(req.body.settings.language)) req.user.settings.language = req.body.settings.language;
-      if (typeof req.body.settings.notifications === 'boolean') req.user.settings.notifications = req.body.settings.notifications;
+    if (keres.body.settings) {
+      if (['light', 'dark'].includes(keres.body.settings.theme))
+        keres.user.settings.theme = keres.body.settings.theme;
+      if (['hu', 'en', 'de'].includes(keres.body.settings.language))
+        keres.user.settings.language = keres.body.settings.language;
+      if (typeof keres.body.settings.notifications === 'boolean')
+        keres.user.settings.notifications = keres.body.settings.notifications;
+      if (
+        keres.body.settings.colors &&
+        typeof keres.body.settings.colors === 'object' &&
+        !Array.isArray(keres.body.settings.colors)
+      ) {
+        for (const kulcs of ['primary', 'accent', 'background', 'selection']) {
+          const szin = keres.body.settings.colors[kulcs];
+          if (szin === undefined) continue;
+          if (typeof szin !== 'string' || !/^#[0-9a-fA-F]{6}$/.test(szin))
+            return valasz
+              .status(400)
+              .json({ message: 'A témaszínek érvényes, 6 jegyű hexadecimális színek legyenek.' });
+          keres.user.settings.colors[kulcs] = szin;
+        }
+      }
     }
-    await req.user.save();
-    res.json({ user: { id: req.user._id, email: req.user.email, username: req.user.username, nickname: req.user.nickname, age: req.user.age, avatar: req.user.avatar, bio: req.user.bio, settings: req.user.settings } });
-  } catch (error) { next(error); }
+    await keres.user.save();
+    valasz.json({
+      user: {
+        id: keres.user._id,
+        email: keres.user.email,
+        username: keres.user.username,
+        nickname: keres.user.nickname,
+        age: keres.user.age,
+        avatar: keres.user.avatar,
+        bio: keres.user.bio,
+        settings: keres.user.settings,
+      },
+    });
+  } catch (hiba) {
+    folytatas(hiba);
+  }
 });
 
-router.post('/me/avatar', receiveAvatar, async (req, res, next) => {
+router.post('/me/avatar', profilkepFogadasa, async (keres, valasz, folytatas) => {
   try {
-    if (!req.file) return res.status(400).json({ message: 'Válassz ki egy JPG, PNG vagy WebP képet.' });
-    const { secureUrl } = await uploadImage(req.file.buffer, { folder: 'kimithoz/avatars' });
-    req.user.avatar = secureUrl;
-    await req.user.save();
-    res.status(201).json({ user: { id: req.user._id, email: req.user.email, username: req.user.username, nickname: req.user.nickname, age: req.user.age, avatar: req.user.avatar, bio: req.user.bio, settings: req.user.settings } });
-  } catch (error) { next(error); }
+    if (!keres.file)
+      return valasz.status(400).json({ message: 'Válassz ki egy JPG, PNG vagy WebP képet.' });
+    const { secureUrl: biztonsagosUrl } = await uploadImage(keres.file.buffer, {
+      folder: 'kimithoz/avatars',
+    });
+    keres.user.avatar = biztonsagosUrl;
+    await keres.user.save();
+    valasz.status(201).json({
+      user: {
+        id: keres.user._id,
+        email: keres.user.email,
+        username: keres.user.username,
+        nickname: keres.user.nickname,
+        age: keres.user.age,
+        avatar: keres.user.avatar,
+        bio: keres.user.bio,
+        settings: keres.user.settings,
+      },
+    });
+  } catch (hiba) {
+    folytatas(hiba);
+  }
 });
 
 module.exports = router;

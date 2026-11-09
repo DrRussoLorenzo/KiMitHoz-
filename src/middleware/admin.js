@@ -1,4 +1,6 @@
-module.exports = function requireAdmin(req, res, next) {
-  if (req.user?.role !== 'admin') return res.status(403).json({ message: 'Ehhez a művelethez admin jogosultság szükséges.' });
-  next();
+/** Az adminisztrátori útvonalakat csak megfelelő jogosultságú fiók érheti el. */
+module.exports = function adminJogosultsagEllenorzese(keres, valasz, folytatas) {
+  if (keres.user?.role !== 'admin')
+    return valasz.status(403).json({ message: 'Ehhez a művelethez admin jogosultság szükséges.' });
+  folytatas();
 };
