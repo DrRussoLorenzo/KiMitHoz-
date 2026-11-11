@@ -5,7 +5,8 @@
   --muted: #625a78;
   --paper: #f7f5fc;
   --surface: #ffffff;
-  --line: #e5e0f0;
+  --menu: #f0ecff;
+  --line: #c9c4d2;
   --accent: #d7f36b;
   --accent-strong: #6746e8;
   --primary: #6746e8;
@@ -246,7 +247,7 @@ a {
 .search-input {
   border: 1px solid var(--line);
   border-radius: 10px;
-  background: var(--surface);
+  background: var(--field, var(--surface));
   padding: 13px 14px;
   outline: 0;
   color: var(--ink);
@@ -259,6 +260,47 @@ a {
 .search-input:focus {
   border-color: #a5a69e;
   box-shadow: 0 0 0 3px #d8ff7038;
+}
+.number-input {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) 32px 32px;
+  align-items: stretch;
+  gap: 5px;
+  min-width: 0;
+}
+.number-input input[type='number'] {
+  width: 100%;
+  min-width: 0;
+  appearance: textfield;
+}
+.number-input input[type='number']::-webkit-inner-spin-button,
+.number-input input[type='number']::-webkit-outer-spin-button {
+  margin: 0;
+  -webkit-appearance: none;
+}
+.number-step {
+  display: grid;
+  place-items: center;
+  width: 32px;
+  min-height: 42px;
+  padding: 0;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  background: var(--field, var(--surface));
+  color: var(--muted);
+}
+.number-step:hover:not(:disabled) {
+  border-color: var(--selection-outline, var(--primary));
+  background: var(--lav);
+  color: var(--ink);
+}
+.number-step:focus-visible {
+  outline: 2px solid var(--selection-outline, var(--primary));
+  outline-offset: 2px;
+}
+.number-step:disabled {
+  opacity: 0.45;
+  cursor: not-allowed;
 }
 .file-upload-field {
   position: relative;
@@ -991,7 +1033,7 @@ body.dark .file-upload-control > i:first-child {
 }
 .friend-profile-link:hover,
 .friend-profile-link:focus-visible {
-  border-color: #8f2abe;
+  border-color: var(--selection-outline, var(--primary));
   outline: none;
   transform: translateY(-1px);
 }
@@ -1059,10 +1101,55 @@ body.dark .file-upload-control > i:first-child {
   color: var(--muted);
   margin-top: 4px;
 }
-.switch {
-  accent-color: #8ca544;
-  width: 17px;
-  height: 17px;
+.setting-switch {
+  appearance: none;
+  position: relative;
+  flex: 0 0 44px;
+  width: 44px;
+  height: 26px;
+  margin: 0;
+  border: 1px solid var(--line);
+  border-radius: 999px;
+  background: var(--surface);
+  cursor: pointer;
+  transition:
+    background-color 0.18s ease,
+    border-color 0.18s ease;
+}
+.setting-switch::before {
+  position: absolute;
+  top: 3px;
+  left: 3px;
+  width: 18px;
+  height: 18px;
+  border-radius: 50%;
+  background: var(--muted);
+  content: '';
+  transition:
+    background-color 0.18s ease,
+    transform 0.18s ease;
+}
+.setting-switch:checked {
+  border-color: var(--primary);
+  background: var(--primary);
+}
+.setting-switch:checked::before {
+  background: #fff;
+  transform: translateX(18px);
+}
+.setting-switch:focus-visible {
+  outline: 3px solid color-mix(in srgb, var(--selection-outline, var(--primary)) 42%, transparent);
+  outline-offset: 3px;
+}
+.setting-switch:disabled {
+  opacity: 0.55;
+  cursor: not-allowed;
+}
+@media (prefers-reduced-motion: reduce) {
+  .setting-switch,
+  .setting-switch::before {
+    transition: none;
+  }
 }
 .notification-row {
   align-items: flex-start;
@@ -1652,6 +1739,7 @@ body.dark .party-map-popup .maplibregl-popup-content {
 .party-chat-form textarea {
   flex: 1;
   min-width: 0;
+  height: 44px;
   min-height: 44px;
   max-height: 130px;
   resize: vertical;
@@ -1659,7 +1747,7 @@ body.dark .party-map-popup .maplibregl-popup-content {
   border: 1px solid var(--line);
   border-radius: 10px;
   outline-color: var(--selection-outline, var(--primary));
-  background: var(--surface);
+  background: var(--field, var(--surface));
   color: var(--ink);
 }
 .party-chat-form button {
@@ -1911,10 +1999,11 @@ body.dark .party-map-popup .maplibregl-popup-content {
   border-radius: 6px;
   background: linear-gradient(
     90deg,
-    var(--preset-primary) 0 25%,
-    var(--preset-accent) 25% 50%,
-    var(--preset-background) 50% 75%,
-    var(--preset-selection) 75% 100%
+    var(--preset-primary) 0 20%,
+    var(--preset-accent) 20% 40%,
+    var(--preset-background) 40% 60%,
+    var(--preset-selection) 60% 80%,
+    var(--preset-field) 80% 100%
   );
 }
 .theme-color-settings label {
@@ -1939,7 +2028,8 @@ body.dark {
   --muted: #c0b9d6;
   --paper: #14111f;
   --surface: #201b2d;
-  --line: #3b334e;
+  --menu: #2b253b;
+  --line: color-mix(in srgb, var(--ink) 24%, var(--surface));
   --accent: #d7f36b;
   --accent-strong: #c0aaff;
   --primary: #8a6cff;
@@ -1955,13 +2045,12 @@ body.dark .topbar {
   background: color-mix(in srgb, var(--surface) 94%, transparent);
 }
 body.dark .sidebar-tip,
-body.dark .nav-link:hover,
 body.dark .icon-button,
 body.dark .field input,
 body.dark .field textarea,
 body.dark .field select,
 body.dark .search-input {
-  background: #2b253b;
+  background: var(--field, #2b253b);
   color: var(--ink);
 }
 body.dark .nav-link.active {

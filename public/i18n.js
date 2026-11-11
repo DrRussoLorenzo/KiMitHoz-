@@ -103,22 +103,23 @@
     Bemutatkozás: { en: 'About me', de: 'Über mich' },
     'Sötét megjelenés': { en: 'Dark appearance', de: 'Dunkles Design' },
     'Téma színei': { en: 'Theme colors', de: 'Designfarben' },
-    'Válaszd ki az oldal négy fő színét.': {
-      en: 'Choose the four main colors of the site.',
-      de: 'Wähle die vier Hauptfarben der Website.',
+    'Válaszd ki az oldal öt fő színét.': {
+      en: 'Choose the five main colors of the site.',
+      de: 'Wähle die fünf Hauptfarben der Website.',
     },
     'Gombok színe': { en: 'Button color', de: 'Buttonfarbe' },
     'Kijelölő szín (körvonal)': { en: 'Selection outline color', de: 'Farbe des Auswahlrahmens' },
     Háttérszín: { en: 'Background color', de: 'Hintergrundfarbe' },
     'Menük színe': { en: 'Menu color', de: 'Menüfarbe' },
+    'Mezők színe': { en: 'Field color', de: 'Feldfarbe' },
     'Kijelölt menü színe': { en: 'Selected menu color', de: 'Farbe des ausgewählten Menüs' },
     'Kijelölt menü háttérszíne': {
       en: 'Selected menu background color',
       de: 'Hintergrundfarbe des ausgewählten Menüs',
     },
-    'Válassz egy alap palettát, vagy állítsd be külön a négy színt.': {
-      en: 'Choose a preset palette or customize the four colors individually.',
-      de: 'Wähle eine Farbpalette oder passe die vier Farben einzeln an.',
+    'Válassz egy alap palettát, vagy állítsd be külön az öt színt.': {
+      en: 'Choose a preset palette or customize the five colors individually.',
+      de: 'Wähle eine Farbpalette oder passe die fünf Farben einzeln an.',
     },
     'Világos téma': { en: 'Light theme', de: 'Helles Design' },
     'Sötét téma': { en: 'Dark theme', de: 'Dunkles Design' },

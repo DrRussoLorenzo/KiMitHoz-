@@ -163,7 +163,7 @@ router.patch('/me', async (keres, valasz, folytatas) => {
         typeof keres.body.settings.colors === 'object' &&
         !Array.isArray(keres.body.settings.colors)
       ) {
-        for (const kulcs of ['primary', 'accent', 'background', 'selection']) {
+        for (const kulcs of ['primary', 'accent', 'background', 'selection', 'field']) {
           const szin = keres.body.settings.colors[kulcs];
           if (szin === undefined) continue;
           if (typeof szin !== 'string' || !/^#[0-9a-fA-F]{6}$/.test(szin))

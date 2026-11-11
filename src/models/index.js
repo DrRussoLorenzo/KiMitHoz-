@@ -45,6 +45,7 @@ const felhasznaloAdatSchema = new mongoose.Schema(
         accent: { type: String, match: /^#[0-9a-fA-F]{6}$/ },
         background: { type: String, match: /^#[0-9a-fA-F]{6}$/ },
         selection: { type: String, match: /^#[0-9a-fA-F]{6}$/ },
+        field: { type: String, match: /^#[0-9a-fA-F]{6}$/ },
       },
     },
   },

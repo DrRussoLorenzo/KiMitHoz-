@@ -278,7 +278,7 @@ describe('Szerver és adatbázis', () => {
     }
   });
 
-  it('a profil négy témaszínét elmenti és csak érvényes hex színeket fogad el', async () => {
+  it('a profil öt témaszínét elmenti és csak érvényes hex színeket fogad el', async () => {
     const user = await User.create({
       email: 'theme-colors@example.com',
       username: 'theme_colors',
@@ -291,6 +291,7 @@ describe('Szerver és adatbázis', () => {
       accent: '#aabbcc',
       background: '#fefefe',
       selection: '#d9e8ff',
+      field: '#f0e2d4',
     };
 
     const response = await request(app)
