@@ -1058,6 +1058,10 @@ body.dark .file-upload-control > i:first-child {
   background: #dff3a8;
   color: #3e5117;
 }
+.stat-card:nth-child(3) .stat-icon {
+  background: #daa4e9;
+  color: #a81d91;
+}
 .stat-card strong {
   display: block;
   font:

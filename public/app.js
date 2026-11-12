@@ -461,7 +461,7 @@ function card(p) {
   const going = (p.members || []).filter((member) => member.status === 'going');
   return `<article class="party-card" data-party="${p._id}">
     <div class="party-cover">${p.coverImage ? `<img class="party-cover-image" src="${esc(p.coverImage)}" alt="${esc(p.title)} borítóképe" loading="lazy">` : ''}<span class="pill">${p.visibility === 'public' ? 'Nyilvános' : 'Meghívásos'}</span>${p.coverImage ? '' : '<span class="cover-emoji">🎉</span>'}</div>
-    <div class="party-card-body"><h3>${esc(p.title)}</h3><div class="party-meta"><span>◷ ${dateLabel(p.date)}</span><span>⌖ ${esc(p.location)}</span></div>
+    <div class="party-card-body"><h3>${esc(p.title)}</h3><div class="party-meta"><span><i class="fa-solid fa-clock"></i> ${dateLabel(p.date)}</span><span><i class="fa-solid fa-location-dot"></i> ${esc(p.location)}</span></div>
       <div class="party-bottom"><div class="mini-stack">${going
         .slice(0, 4)
         .map((member) => avatarMarkup(member.user, 'mini-avatar'))
