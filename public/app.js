@@ -1071,6 +1071,7 @@ document.addEventListener('click', async (event) => {
   }
   const nav = event.target.closest('[data-view]');
   if (nav) {
+    if (nav instanceof HTMLAnchorElement) event.preventDefault();
     await navigateView(nav.dataset.view);
     return;
   }

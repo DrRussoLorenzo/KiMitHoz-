@@ -23,7 +23,11 @@
 }
 
 .admin-topbar .brand {
-  font-size: 18px;
+  gap: 7px;
+}
+
+.admin-topbar .brand-name {
+  font-size: 22px;
 }
 
 .admin-badge {
