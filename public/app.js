@@ -9,6 +9,11 @@ const allapot = {
   friends: [],
   requests: [],
   notifications: [],
+  musicPlaylists: [],
+  selectedMusicPlaylistId: null,
+  musicSearchResults: [],
+  playingTrack: null,
+  musicShuffle: {},
   view: 'home',
   authMode: 'login',
   activeParty: null,
@@ -110,6 +115,10 @@ let discoveryMap;
 let partyLocationMap;
 let partyLocationMarker;
 let partyChatTimer;
+let partyMusicTimer;
+let youtubeApiPromise;
+let youtubePlayerInstance;
+let youtubePlayerGeneration = 0;
 let partyChatLoading = false;
 let reverseLookupAt = 0;
 let galleryObjectUrls = [];
@@ -366,6 +375,7 @@ async function refreshData() {
 const appViews = new Set([
   'home',
   'parties',
+  'music',
   'discover',
   'archive',
   'friends',
@@ -525,6 +535,228 @@ function partiesPage() {
       );
 
   return `${heading('A TI TERVEITEK', 'Bulijaim', 'Minden meghívásod és szervezésed egy helyen.', '<button class="button button-dark" data-action="create">＋ Új buli</button>')}<div class="party-grid">${content}</div>`;
+}
+
+function youtubePlayer(track) {
+  if (!track || !/^[A-Za-z0-9_-]{11}$/.test(track.videoId || '')) return '';
+  const origin = /^https?:$/.test(location.protocol)
+    ? `&origin=${encodeURIComponent(location.origin)}`
+    : '';
+  return `<div class="music-player"><iframe id="youtube-player" src="https://www.youtube-nocookie.com/embed/${encodeURIComponent(track.videoId)}?autoplay=1&rel=0&enablejsapi=1${origin}" title="${esc(track.title)} – ${esc(track.artist)}" referrerpolicy="strict-origin-when-cross-origin" allow="autoplay; encrypted-media; picture-in-picture" allowfullscreen loading="lazy"></iframe></div>`;
+}
+
+function musicPlayerBlock(track) {
+  return `<div class="music-player-block">${youtubePlayer(track)}<p class="music-provider-note">A keresést a YouTube Data API végzi, a lejátszás pedig beágyazott YouTube-lejátszóban történik.</p></div>`;
+}
+
+function loadYouTubeIframeApi() {
+  if (window.YT?.Player) return Promise.resolve(window.YT);
+  if (youtubeApiPromise) return youtubeApiPromise;
+  youtubeApiPromise = new Promise((resolve, reject) => {
+    const previousCallback = window.onYouTubeIframeAPIReady;
+    window.onYouTubeIframeAPIReady = () => {
+      try {
+        previousCallback?.();
+      } finally {
+        resolve(window.YT);
+      }
+    };
+    const script = document.createElement('script');
+    script.src = 'https://www.youtube.com/iframe_api';
+    script.onerror = () => {
+      youtubeApiPromise = null;
+      reject(new Error('A YouTube-lejátszó betöltése nem sikerült.'));
+    };
+    document.head.append(script);
+  });
+  return youtubeApiPromise;
+}
+
+async function playNextMusicTrack(generation) {
+  const current = allapot.playingTrack;
+  if (!current || generation !== youtubePlayerGeneration) return;
+  const queue =
+    current.scope === 'personal'
+      ? allapot.musicPlaylists.find((playlist) => playlist._id === current.playlistId)?.tracks || []
+      : allapot.activeParty?._id === current.partyId
+        ? allapot.activeParty.musicPlaylist?.tracks || []
+        : [];
+  const currentIndex = queue.findIndex(
+    (track) => String(track._id) === String(current.trackId)
+  );
+  const queueIndex =
+    currentIndex < 0 ? queue.findIndex((track) => track.videoId === current.videoId) : currentIndex;
+  const nextTrack = queueIndex < 0 ? null : queue[queueIndex + 1];
+  let selectedTrack = nextTrack;
+  if (current.shuffle && queue.length > 1) {
+    let remaining = (current.shuffleRemaining || []).filter((id) =>
+      queue.some((track) => String(track._id) === String(id))
+    );
+      if (!remaining.length) remaining = shuffledTrackIds(queue, current.trackId);
+    const nextId = remaining.shift();
+    selectedTrack = queue.find((track) => String(track._id) === nextId);
+    current.shuffleRemaining = remaining;
+  }
+  if (!selectedTrack) {
+    toast('Vége a műsorlistának.');
+    return;
+  }
+  allapot.playingTrack = {
+    ...selectedTrack,
+    scope: current.scope,
+    playlistId: current.playlistId,
+    partyId: current.partyId,
+    trackId: selectedTrack._id,
+    shuffle: current.shuffle,
+    shuffleRemaining: current.shuffleRemaining,
+  };
+  youtubePlayerInstance?.loadVideoById(selectedTrack.videoId);
+}
+
+function musicPlayerControls(track, { partyId = '', playlistId = '' } = {}) {
+  const isShuffle = Boolean(track?.shuffle);
+  return `<div class="music-player-controls"><button type="button" class="button button-outline button-small music-shuffle ${isShuffle ? 'active' : ''}" data-action="toggle-music-shuffle" data-party="${esc(partyId)}" data-playlist="${esc(playlistId)}" aria-pressed="${isShuffle}" title="Véletlenszerű lejátszás"><i class="fa-solid fa-shuffle" aria-hidden="true"></i><span>Shuffle ${isShuffle ? 'be' : 'ki'}</span></button></div>`;
+}
+
+function shuffledTrackIds(tracks, currentTrackId) {
+  const ids = tracks
+    .filter((track) => String(track._id) !== String(currentTrackId))
+    .map((track) => String(track._id));
+  for (let index = ids.length - 1; index > 0; index -= 1) {
+    const swapIndex = Math.floor(Math.random() * (index + 1));
+    [ids[index], ids[swapIndex]] = [ids[swapIndex], ids[index]];
+  }
+  return ids;
+}
+
+async function initializeYouTubePlayer() {
+  const track = allapot.playingTrack;
+  if (!track || !$('#youtube-player')) return;
+  const generation = ++youtubePlayerGeneration;
+  try {
+    const youtube = await loadYouTubeIframeApi();
+    if (generation !== youtubePlayerGeneration || !$('#youtube-player')) return;
+    youtubePlayerInstance = new youtube.Player('youtube-player', {
+      events: {
+        onStateChange: (event) => {
+          if (event.data === youtube.PlayerState.ENDED) playNextMusicTrack(generation);
+        },
+      },
+    });
+  } catch (error) {
+    if (generation === youtubePlayerGeneration) toast(error.message, true);
+  }
+}
+
+function musicTrackRow(track, { partyId = '', playlistId = '', isHost = false } = {}) {
+  const canDelete = playlistId || isHost || (track.addedBy?._id || track.addedBy)?.toString() === allapot.user.id;
+  const canPlay = Boolean(playlistId || isHost);
+  const playerContext = playlistId
+    ? `data-player-scope="personal" data-player-playlist="${esc(playlistId)}"`
+    : `data-player-scope="party" data-player-party="${esc(partyId)}"`;
+  return `<article class="music-track-row">${track.thumbnail ? `<img class="music-thumbnail" src="${esc(track.thumbnail)}" alt="" loading="lazy">` : '<span class="music-thumbnail music-thumbnail-empty">♫</span>'}<div class="music-track-copy"><strong>${esc(track.title)}</strong><small>${esc(track.artist)}${!playlistId && track.addedBy?.nickname ? ` · ${esc(track.addedBy.nickname)}` : ''}</small></div>${canPlay ? `<button type="button" class="button button-outline button-small" data-action="play-track" data-video-id="${esc(track.videoId)}" data-title="${esc(track.title)}" data-artist="${esc(track.artist)}" data-player-track="${esc(track._id)}" ${playerContext}>Lejátszás</button>` : ''}${canDelete ? `<button type="button" class="button button-outline button-small music-delete" data-action="delete-music-track" data-party="${esc(partyId)}" data-playlist="${esc(playlistId)}" data-track="${esc(track._id)}" aria-label="${esc(track.title)} törlése">×</button>` : ''}</article>`;
+}
+
+function musicSearchForm({ playlistId = '', partyId = '' } = {}) {
+  return `<form id="music-search-form" class="music-search-form" data-playlist-id="${esc(playlistId)}" data-party-id="${esc(partyId)}"><label class="field">Zene keresése cím vagy előadó alapján<input name="query" type="search" minlength="2" maxlength="100" placeholder="Például: Queen – Don't Stop Me Now" required></label><button class="button button-dark" type="submit">Keresés</button></form><div id="music-search-results" class="music-search-results" aria-live="polite"></div>`;
+}
+
+function musicSearchResult(track, action) {
+  return `<article class="music-track-row music-search-result">${track.thumbnail ? `<img class="music-thumbnail" src="${esc(track.thumbnail)}" alt="" loading="lazy">` : '<span class="music-thumbnail music-thumbnail-empty">♫</span>'}<div class="music-track-copy"><strong>${esc(track.title)}</strong><small>${esc(track.artist)}</small></div><button type="button" class="button button-lime button-small" data-action="${action}" data-video-id="${esc(track.videoId)}" data-title="${esc(track.title)}" data-artist="${esc(track.artist)}" data-thumbnail="${esc(track.thumbnail || '')}">＋ Hozzáadás</button></article>`;
+}
+
+function updatePersonalPlaylistView(playlist) {
+  const index = allapot.musicPlaylists.findIndex((item) => item._id === playlist._id);
+  if (index >= 0) allapot.musicPlaylists[index] = playlist;
+  const list = $('#personal-music-track-list');
+  if (list && allapot.selectedMusicPlaylistId === playlist._id) {
+    list.innerHTML = playlist.tracks
+      .map((track) => musicTrackRow(track, { playlistId: playlist._id }))
+      .join('');
+    const count = $('#music-playlist-track-count');
+    if (count) count.textContent = `${playlist.tracks.length} / 250`;
+  }
+  const sidebarCount = $(`[data-playlist-count="${CSS.escape(playlist._id)}"]`);
+  if (sidebarCount) sidebarCount.textContent = String(playlist.tracks.length);
+}
+
+function musicPlaylistCardMarkup(playlist, selectedId) {
+  return `<article class="music-playlist-card ${selectedId === playlist._id ? 'active' : ''}"><button type="button" class="music-playlist-select" data-action="select-music-playlist" data-playlist="${esc(playlist._id)}"><strong>${esc(playlist.title)}</strong><small><span data-playlist-count="${esc(playlist._id)}">${playlist.tracks.length}</span> zeneszám</small></button><button type="button" class="music-playlist-delete" data-action="delete-music-playlist" data-playlist="${esc(playlist._id)}" aria-label="${esc(playlist.title)} törlése" title="Műsorlista törlése"><i class="fa-regular fa-trash-can" aria-hidden="true"></i></button></article>`;
+}
+
+function musicPage() {
+  const selected = allapot.musicPlaylists.find(
+    (playlist) => playlist._id === allapot.selectedMusicPlaylistId
+  ) || allapot.musicPlaylists[0];
+  const playlistCards = allapot.musicPlaylists
+    .map((playlist) => musicPlaylistCardMarkup(playlist, selected?._id))
+    .join('');
+  const selectedPlaying =
+    allapot.playingTrack?.scope === 'personal' && allapot.playingTrack.playlistId === selected?._id;
+  const selectedContent = selected
+    ? `<section class="surface-card music-library"><div class="music-section-head"><div><span class="greeting-kicker">SAJÁT MŰSORLISTA</span><h2>${esc(selected.title)}</h2><p class="muted">A saját listád zenéit a bulidhoz is hozzáadhatod.</p></div><span id="music-playlist-track-count" class="gallery-count">${selected.tracks.length} / 250</span></div>${musicPlayerControls(selectedPlaying ? allapot.playingTrack : { shuffle: allapot.musicShuffle[`playlist:${selected._id}`] }, { playlistId: selected._id })}${selectedPlaying ? musicPlayerBlock(allapot.playingTrack) : ''}<div id="personal-music-track-list">${selected.tracks.map((track) => musicTrackRow(track, { playlistId: selected._id })).join('') || '<p class="muted">Még nincs zeneszám ebben a listában. Keress cím vagy előadó alapján!</p>'}</div><div class="music-search-block"><h3>Új zene hozzáadása</h3>${musicSearchForm({ playlistId: selected._id })}</div></section>`
+    : empty('♫', 'Még nincs műsorlistád', 'Hozz létre egy saját listát, és keress bele zenéket.', '');
+  return `${heading('A TE HANGULATOD', 'Zenék és műsorlisták', 'Készíts saját listákat, majd válaszd ki, melyik szóljon a buliban.')}
+    <section class="music-library-layout"><aside class="surface-card music-playlists"><div class="music-section-head"><div><h2>Saját listáid</h2><p class="muted">A listák csak neked láthatók.</p></div></div><form id="music-playlist-form" class="music-create-form"><label class="field">Új műsorlista neve<input name="title" maxlength="80" placeholder="Például: Nyári kedvencek" required></label><button class="button button-lime button-small" type="submit">＋ Létrehozás</button></form><form id="music-import-form" class="music-import-form"><label class="field">Nyilvános playlist importálása YouTube-ról vagy Spotify-ról<input name="url" type="url" placeholder="Lejátszási lista linkje" required></label><button class="button button-outline button-small" type="submit"><i class="fa-solid fa-download" aria-hidden="true"></i> Importálás</button><small>YouTube-listák közvetlenül importálhatók (max. 100 szám); Spotify-listák zenéit YouTube-on keressük meg.</small></form><div id="music-playlist-list">${playlistCards || '<p class="muted">A létrehozott listáid itt jelennek meg.</p>'}</div></aside>${selectedContent}</section>`;
+}
+
+function partyMusicContent(p) {
+  const isHost = p.host?._id === allapot.user.id || (p.host?._id || p.host)?.toString() === allapot.user.id;
+  const playlist = p.musicPlaylist;
+  const isPlayingParty =
+    allapot.playingTrack?.scope === 'party' && allapot.playingTrack.partyId === p._id;
+  const choosePlaylist = isHost
+    ? `<form id="party-music-playlist-form" class="music-attach-form" data-party-id="${esc(p._id)}"><label class="field">Saját műsorlista kiválasztása<select id="party-music-playlist" name="playlistId"><option value="">Válassz listát…</option>${allapot.musicPlaylists.map((item) => `<option value="${esc(item._id)}" ${playlist?.sourcePlaylistId === item._id ? 'selected' : ''}>${esc(item.title)}</option>`).join('')}</select></label>${playlist ? '<button type="button" class="button button-outline button-small" data-action="detach-party-playlist" data-party="' + esc(p._id) + '">Leválasztás</button>' : ''}</form>${allapot.musicPlaylists.length ? '' : '<p class="muted">Előbb hozz létre saját listát a <button type="button" class="text-button" data-view="music">Zenék</button> fülön.</p>'}`
+    : '';
+  const contents = playlist
+    ? `<div class="music-section-head"><div><h3>${esc(playlist.title)}</h3><p class="muted">A házigazda lejátszhatja, a résztvevők pedig a sor végére tehetnek zenét.</p></div><span class="gallery-count" data-music-count>${playlist.tracks.length} / 250</span></div>${isHost ? musicPlayerControls(isPlayingParty ? allapot.playingTrack : { shuffle: allapot.musicShuffle[`party:${p._id}`] }, { partyId: p._id }) : ''}${isPlayingParty && isHost ? musicPlayerBlock(allapot.playingTrack) : ''}<div id="party-music-track-list" class="music-track-list">${playlist.tracks.map((track) => musicTrackRow(track, { partyId: p._id, isHost })).join('') || '<p class="muted">Még nincs zeneszám. Keressetek zenét a sorhoz!</p>'}</div><div class="music-search-block"><h3>Következő zene hozzáadása</h3>${musicSearchForm({ partyId: p._id })}</div>`
+    : `<div class="music-empty-state"><span aria-hidden="true">♫</span><div><strong>Még nincs közös műsorlista</strong><p class="muted">${isHost ? 'Válassz egyet a saját listáid közül.' : 'A házigazda még nem választott műsorlistát.'}</p></div></div>`;
+  return `<div class="party-chat-heading"><div><h2>Közös zene</h2><p class="muted">${isHost ? 'A lejátszás ezen az eszközön szól.' : 'Közös sor a buli résztvevőinek.'}</p></div><span class="chat-live-indicator">● Frissül</span></div>${choosePlaylist}<div id="party-music-queue">${playlist ? contents : ''}</div>`;
+}
+
+async function refreshPartyMusic(partyId) {
+  if (
+    allapot.view !== 'party-detail' ||
+    allapot.activeParty?._id !== partyId ||
+    $('#music-search-form')?.elements.query.value ||
+    $('#music-search-results')?.childElementCount ||
+    document.activeElement?.matches('#music-search-form input')
+  )
+    return;
+  try {
+    const previousPlaylist = allapot.activeParty.musicPlaylist;
+    const { musicPlaylist } = await api(`/parties/${encodeURIComponent(partyId)}/music`);
+    if (allapot.view !== 'party-detail' || allapot.activeParty?._id !== partyId) return;
+    allapot.activeParty.musicPlaylist = musicPlaylist;
+    const content = $('#party-music-content');
+    if (!content) return;
+    if (
+      musicPlaylist?.title &&
+      previousPlaylist?.title === musicPlaylist.title &&
+      String(previousPlaylist.sourcePlaylistId) === String(musicPlaylist.sourcePlaylistId)
+    ) {
+      const tracks = $('#party-music-track-list', content);
+      if (tracks)
+        tracks.innerHTML =
+          musicPlaylist.tracks
+            .map((track) =>
+              musicTrackRow(track, {
+                partyId,
+                isHost:
+                  allapot.activeParty.host?._id === allapot.user.id ||
+                  (allapot.activeParty.host?._id || allapot.activeParty.host)?.toString() ===
+                    allapot.user.id,
+              })
+            )
+            .join('') || '<p class="muted">Még nincs zeneszám. Keressetek zenét a sorhoz!</p>';
+      const counter = $('[data-music-count]', content);
+      if (counter) counter.textContent = `${musicPlaylist.tracks.length} / 250`;
+    } else {
+      content.innerHTML = partyMusicContent(allapot.activeParty);
+    }
+  } catch (_error) {
+    // A felület maradjon használható akkor is, ha az időszakos frissítés átmenetileg hibázik.
+  }
 }
 // Betölti és megjeleníti a lezárt bulikhoz tartozó emlékképeket.
 async function archivePage() {
@@ -976,6 +1208,7 @@ function renderParty(p) {
     <div class="party-detail-columns"><section class="surface-card"><h2>Az eseményről</h2><div class="detail-line"><i class="fa-solid fa-clock"></i> ${dateLabel(p.date)}</div><div class="detail-line"><i class="fa-solid fa-location-dot"></i> ${esc(p.location)}</div><div class="detail-line"><i class="fa-solid fa-user-group"></i> ${attending.length} / ${p.maxGuests} fő · ${p.ticketPrice ? `${p.ticketPrice} Ft` : 'Ingyenes'}</div><div class="detail-line"><i class="fa-solid fa-child"></i> Minimum életkor: ${esc(p.minAge || 16)} év</div><div class="detail-line"><i class="fa-solid fa-file-lines"></i> ${esc(p.description || 'Nincs leírás.')}</div><h2>Résztvevők</h2>${attendees}${inviteFriends}</section>
     <section class="surface-card"><div class="contribution-heading"><h2>Ki mit hoz?</h2><button type="button" class="button button-outline button-small" data-action="toggle-cost-summary" aria-expanded="false">Összegzés</button></div>${costSummary}${isHost || statusOf(p) === 'going' ? '<form id="item-form" class="form-grid"><label class="field span-two">Tétel neve<input name="name" required maxlength="100"></label><label class="field">Ikon<input name="icon" value="🍽️" maxlength="2048" placeholder="Emoji vagy kép URL-je" aria-label="Tétel ikonja: emoji vagy kép URL-je" required><small>Csak egy emoji vagy http(s) kép URL adható meg.</small></label><label class="field">Mennyiség<input name="quantity" type="number" min="1" max="1000" step="1" value="1" required></label><label class="field">Ár (Ft)<input name="price" type="number" min="0" max="1000000" step="1" value="0" required></label><label class="field">Kategória<select name="category"><option value="étel">Étel</option><option value="ital">Ital</option><option value="egyéb">Egyéb</option></select></label><button class="button button-lime button-small span-two">＋ Hozzáadás</button></form>' : ''}${items || '<p class="muted">Még nincs tétel.</p>'}<div class="contribution-total"><span>Tételek összesen</span><strong>${formatFt(totalItemPrice)}</strong></div></section></div>
     ${gallerySection}
+    ${canChatParty ? `<section class="surface-card party-music"><div id="party-music-content">${partyMusicContent(p)}</div></section>` : ''}
     ${canChatParty ? `<section class="surface-card party-chat"><div class="party-chat-heading"><div><h2>Beszélgetés</h2><p class="muted">A buli résztvevőinek közös chatje</p></div><span class="chat-live-indicator">● Frissül</span></div><div id="party-chat-messages" class="party-chat-messages" role="log" aria-live="polite" aria-label="Buli chat üzenetei"><p class="chat-empty">Üzenetek betöltése…</p></div><form id="party-chat-form" class="party-chat-form" data-party-id="${esc(p._id)}" data-mentioned-user-ids="[]"><div class="chat-composer"><button type="button" class="button button-outline chat-mention-trigger" data-action="toggle-mention-picker" aria-label="Résztvevő megjelölése" aria-expanded="false">@</button><label class="sr-only" for="party-chat-input">Üzenet</label><textarea id="party-chat-input" name="text" rows="2" maxlength="1000" placeholder="Írj üzenetet…" required></textarea><div id="chat-mention-picker" class="chat-mention-picker hidden" role="group" aria-label="Megjelölhető résztvevők">${chatMentionOptions}</div></div><button class="button button-dark" type="submit">Küldés <span aria-hidden="true">→</span></button></form></section>` : ''}`;
 }
 function openModal(title, content) {
@@ -987,11 +1220,18 @@ function openModal(title, content) {
 // Az aktuális nézethez tartozó HTML-t beilleszti, majd elindítja a hozzá tartozó elemeket.
 async function render() {
   clearInterval(partyChatTimer);
+  clearInterval(partyMusicTimer);
+  youtubePlayerGeneration += 1;
+  if (youtubePlayerInstance) {
+    youtubePlayerInstance.destroy();
+    youtubePlayerInstance = null;
+  }
   partyChatTimer = null;
   releaseGalleryObjectUrls();
   const labels = {
     home: 'Áttekintés',
     parties: 'Bulijaim',
+    music: 'Zenék',
     discover: 'Felfedezés',
     archive: 'Galéria',
     friends: 'Barátok',
@@ -1010,11 +1250,40 @@ async function render() {
     )
   );
 
+  if (
+    allapot.view === 'music' ||
+    (allapot.view === 'party-detail' &&
+      (allapot.activeParty?.host?._id === allapot.user.id || statusOf(allapot.activeParty) === 'going'))
+  ) {
+    try {
+      const { playlists } = await api('/music/playlists');
+      allapot.musicPlaylists = playlists;
+      if (!playlists.some((playlist) => playlist._id === allapot.selectedMusicPlaylistId))
+        allapot.selectedMusicPlaylistId = playlists[0]?._id || null;
+    } catch (error) {
+      allapot.musicPlaylists = [];
+      if (allapot.view === 'music') toast(error.message, true);
+    }
+  }
+  if (allapot.view === 'party-detail' && allapot.activeParty?._id) {
+    const party = allapot.activeParty;
+    if (party.host?._id === allapot.user.id || statusOf(party) === 'going') {
+      try {
+        const { musicPlaylist } = await api(`/parties/${encodeURIComponent(party._id)}/music`);
+        party.musicPlaylist = musicPlaylist;
+      } catch (_error) {
+        party.musicPlaylist = null;
+      }
+    }
+  }
+
   const content =
     allapot.view === 'home'
       ? homePage()
       : allapot.view === 'parties'
         ? partiesPage()
+        : allapot.view === 'music'
+          ? musicPage()
         : allapot.view === 'discover'
           ? await discoverPage()
           : allapot.view === 'archive'
@@ -1031,6 +1300,7 @@ async function render() {
 
   $('#page-content').innerHTML = content;
   enhanceNumberInputs($('#page-content'));
+  if ($('#youtube-player')) initializeYouTubePlayer();
   if (allapot.view === 'archive' || allapot.view === 'party-detail') await loadGalleryImages();
   if (allapot.view === 'discover') initDiscoveryMap(allapot.discoverParties);
   if (allapot.view === 'party-detail' && allapot.activeParty?._id && $('#party-chat-messages')) {
@@ -1038,6 +1308,10 @@ async function render() {
     await refreshPartyChat(partyId, true, true);
     if (allapot.view === 'party-detail' && allapot.activeParty?._id === partyId)
       partyChatTimer = setInterval(() => refreshPartyChat(partyId), 5000);
+  }
+  if (allapot.view === 'party-detail' && allapot.activeParty?._id && $('#party-music-content')) {
+    const partyId = allapot.activeParty._id;
+    partyMusicTimer = setInterval(() => refreshPartyMusic(partyId), 7000);
   }
 }
 function joinModal(prefill = '') {
@@ -1120,6 +1394,146 @@ document.addEventListener('click', async (event) => {
       input.value = String(Number(next.toFixed(decimals)));
       input.dispatchEvent(new Event('input', { bubbles: true }));
       input.dispatchEvent(new Event('change', { bubbles: true }));
+      return;
+    }
+    if (action === 'select-music-playlist') {
+      allapot.selectedMusicPlaylistId = button.dataset.playlist;
+      allapot.musicSearchResults = [];
+      await render();
+      return;
+    }
+    if (action === 'play-track') {
+      const scope = button.dataset.playerScope;
+      const playlistId = button.dataset.playerPlaylist;
+      const partyId = button.dataset.playerParty;
+      const trackId = button.dataset.playerTrack;
+      const queue =
+        scope === 'personal'
+          ? allapot.musicPlaylists.find((playlist) => playlist._id === playlistId)?.tracks || []
+          : allapot.activeParty?.musicPlaylist?.tracks || [];
+      const shuffle = Boolean(allapot.musicShuffle[`${scope === 'personal' ? 'playlist' : 'party'}:${scope === 'personal' ? playlistId : partyId}`]);
+      allapot.playingTrack = {
+        videoId: button.dataset.videoId,
+        title: button.dataset.title,
+        artist: button.dataset.artist,
+        scope,
+        playlistId,
+        partyId,
+        trackId,
+        shuffle,
+        shuffleRemaining: shuffle ? shuffledTrackIds(queue, trackId) : [],
+      };
+      await render();
+      return;
+    }
+    if (action === 'toggle-music-shuffle') {
+      const playlistId = button.dataset.playlist;
+      const partyId = button.dataset.party;
+      const scope = playlistId ? 'personal' : 'party';
+      const key = `${scope === 'personal' ? 'playlist' : 'party'}:${playlistId || partyId}`;
+      const current =
+        allapot.playingTrack?.scope === scope &&
+        (scope === 'personal'
+          ? allapot.playingTrack.playlistId === playlistId
+          : allapot.playingTrack.partyId === partyId)
+          ? allapot.playingTrack
+          : null;
+      const enabled = !(current ? current.shuffle : allapot.musicShuffle[key]);
+      allapot.musicShuffle[key] = enabled;
+      if (current) {
+        current.shuffle = enabled;
+        const queue =
+          current.scope === 'personal'
+            ? allapot.musicPlaylists.find((playlist) => playlist._id === current.playlistId)?.tracks || []
+            : allapot.activeParty?.musicPlaylist?.tracks || [];
+        current.shuffleRemaining = enabled ? shuffledTrackIds(queue, current.trackId) : [];
+      }
+      button.classList.toggle('active', enabled);
+      button.setAttribute('aria-pressed', String(enabled));
+      button.querySelector('span').textContent = `Shuffle ${enabled ? 'be' : 'ki'}`;
+      return;
+    }
+    if (action === 'delete-music-playlist' && window.confirm('Biztosan törlöd ezt a műsorlistát?')) {
+      await api(`/music/playlists/${encodeURIComponent(button.dataset.playlist)}`, {
+        method: 'DELETE',
+      });
+      if (allapot.selectedMusicPlaylistId === button.dataset.playlist)
+        allapot.selectedMusicPlaylistId = null;
+      const { playlists } = await api('/music/playlists');
+      allapot.musicPlaylists = playlists;
+      await render();
+      toast('A műsorlista törölve.');
+      return;
+    }
+    if (action === 'add-personal-track') {
+      const form = button.closest('.music-library')?.querySelector('#music-search-form');
+      const playlistId = form?.dataset.playlistId;
+      const { playlist } = await api(`/music/playlists/${encodeURIComponent(playlistId)}/tracks`, {
+        method: 'POST',
+        body: JSON.stringify({
+          videoId: button.dataset.videoId,
+          title: button.dataset.title,
+          artist: button.dataset.artist,
+          thumbnail: button.dataset.thumbnail,
+        }),
+      });
+      updatePersonalPlaylistView(playlist);
+      form.reset();
+      $('#music-search-results', form.parentElement).innerHTML = '';
+      toast('A zeneszám hozzáadva a listához.');
+      return;
+    }
+    if (action === 'add-party-track') {
+      const form = button.closest('.party-music')?.querySelector('#music-search-form');
+      const partyId = form?.dataset.partyId;
+      await api(`/parties/${encodeURIComponent(partyId)}/music/tracks`, {
+        method: 'POST',
+        body: JSON.stringify({
+          videoId: button.dataset.videoId,
+          title: button.dataset.title,
+          artist: button.dataset.artist,
+          thumbnail: button.dataset.thumbnail,
+        }),
+      });
+      form.reset();
+      $('#music-search-results', form.parentElement).innerHTML = '';
+      await refreshPartyMusic(partyId);
+      toast('A zeneszám bekerült a közös sor végére.');
+      return;
+    }
+    if (action === 'delete-music-track' && window.confirm('Biztosan törlöd ezt a zeneszámot?')) {
+      if (button.dataset.playlist) {
+        await api(
+          `/music/playlists/${encodeURIComponent(button.dataset.playlist)}/tracks/${encodeURIComponent(button.dataset.track)}`,
+          { method: 'DELETE' }
+        );
+        const { playlists } = await api('/music/playlists');
+        allapot.musicPlaylists = playlists;
+        await render();
+      } else {
+        const partyId = button.dataset.party;
+        await api(
+          `/parties/${encodeURIComponent(partyId)}/music/tracks/${encodeURIComponent(button.dataset.track)}`,
+          { method: 'DELETE' }
+        );
+        const searchForm = $('#music-search-form');
+        if (searchForm) {
+          searchForm.reset();
+          $('#music-search-results', searchForm.parentElement).innerHTML = '';
+        }
+        await refreshPartyMusic(partyId);
+      }
+      toast('A zeneszám törölve.');
+      return;
+    }
+    if (action === 'detach-party-playlist') {
+      const partyId = button.dataset.party;
+      await api(`/parties/${encodeURIComponent(partyId)}/music/playlist`, {
+        method: 'PUT',
+        body: JSON.stringify({ playlistId: null }),
+      });
+      await openParty(partyId);
+      toast('A közös műsorlista leválasztva.');
       return;
     }
     if (action === 'open-notification') {
@@ -1303,6 +1717,81 @@ window.addEventListener('popstate', (event) => {
 document.addEventListener('submit', async (event) => {
   const form = event.target;
   try {
+    if (form.id === 'music-import-form') {
+      event.preventDefault();
+      const submit = form.querySelector('button[type="submit"]');
+      submit.disabled = true;
+      submit.textContent = 'Importálás…';
+      try {
+        const { playlist, message } = await api('/music/playlists/import', {
+          method: 'POST',
+          body: JSON.stringify({ url: new FormData(form).get('url') }),
+        });
+        const { playlists } = await api('/music/playlists');
+        allapot.musicPlaylists = playlists;
+        const list = $('#music-playlist-list');
+        if (list)
+          list.innerHTML = playlists
+            .map((item) => musicPlaylistCardMarkup(item, allapot.selectedMusicPlaylistId))
+            .join('');
+        if (!allapot.selectedMusicPlaylistId) {
+          allapot.selectedMusicPlaylistId = playlist._id;
+          await render();
+        } else if (allapot.playingTrack?.scope !== 'personal') {
+          allapot.selectedMusicPlaylistId = playlist._id;
+          await render();
+        }
+        form.reset();
+        toast(message);
+      } finally {
+        if (submit.isConnected) {
+          submit.disabled = false;
+          submit.innerHTML = '<i class="fa-solid fa-download" aria-hidden="true"></i> Importálás';
+        }
+      }
+      return;
+    }
+    if (form.id === 'music-playlist-form') {
+      event.preventDefault();
+      const { playlist } = await api('/music/playlists', {
+        method: 'POST',
+        body: JSON.stringify({ title: new FormData(form).get('title') }),
+      });
+      const { playlists } = await api('/music/playlists');
+      allapot.musicPlaylists = playlists;
+      const list = $('#music-playlist-list');
+      if (list)
+        list.innerHTML = playlists
+          .map((item) => musicPlaylistCardMarkup(item, allapot.selectedMusicPlaylistId))
+          .join('');
+      if (!allapot.playingTrack) {
+        allapot.selectedMusicPlaylistId = playlist._id;
+        await render();
+      }
+      form.reset();
+      toast('A műsorlista elkészült.');
+      return;
+    }
+    if (form.id === 'music-search-form') {
+      event.preventDefault();
+      const query = new FormData(form).get('query').trim();
+      const button = form.querySelector('button[type="submit"]');
+      button.disabled = true;
+      button.textContent = 'Keresés…';
+      try {
+        const { tracks } = await api(`/music/search?q=${encodeURIComponent(query)}`);
+        if (!form.isConnected) return;
+        $('#music-search-results', form.parentElement).innerHTML = tracks
+          .map((track) => musicSearchResult(track, form.dataset.partyId ? 'add-party-track' : 'add-personal-track'))
+          .join('') || '<p class="muted">Nincs találat. Próbálj más címet vagy előadót.</p>';
+      } finally {
+        if (button.isConnected) {
+          button.disabled = false;
+          button.textContent = 'Keresés';
+        }
+      }
+      return;
+    }
     if (form.id === 'auth-form') {
       event.preventDefault();
       if (allapot.authMode === 'register') {
@@ -1458,6 +1947,21 @@ document.addEventListener('submit', async (event) => {
 // A privát/nyilvános kapcsoló vezérli a térképes helyválasztót.
 // Fájl- és választómezők változásakor elindítja a feltöltést vagy frissíti a térképet.
 document.addEventListener('change', (event) => {
+  if (event.target.id === 'party-music-playlist') {
+    const form = event.target.form;
+    const playlistId = event.target.value;
+    if (!playlistId) return;
+    api(`/parties/${encodeURIComponent(form.dataset.partyId)}/music/playlist`, {
+      method: 'PUT',
+      body: JSON.stringify({ playlistId }),
+    })
+      .then(async () => {
+        await openParty(form.dataset.partyId);
+        toast('A műsorlista megosztva a buli résztvevőivel.');
+      })
+      .catch((error) => toast(error.message, true));
+    return;
+  }
   // A nyelvválasztó azonnali előnézetet ad; a profilmentés tartósítja a beállítást.
   if (event.target.name === 'language' && event.target.form?.id === 'profile-form') {
     window.KiMitHozI18n?.nyelvBeallitasa(event.target.value);

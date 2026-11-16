@@ -4,7 +4,7 @@ const fs = require('fs');
 const path = require('path');
 const multer = require('multer');
 const auth = require('../middleware/auth');
-const { Party, User, Notification, PartyMessage } = require('../models');
+const { Party, User, Notification, PartyMessage, MusicPlaylist } = require('../models');
 const { ARCHIVE_DELAY_MS, archiveExpiredParties } = require('../services/partyArchive');
 const {
   CLOUDINARY_PREFIX,
@@ -126,6 +126,118 @@ const meetsMinimumAge = (user, party) =>
 /** Egységes, felhasználónak szánt szöveget készít a korhatár elutasításához. */
 const ageRequirementMessage = (party) =>
   `Ehhez a bulihoz legalább ${party.minAge || 16} évesnek kell lenned.`;
+
+const validMusicId = (value) => typeof value === 'string' && /^[a-f\d]{24}$/i.test(value);
+const validMusicTrack = (body) => {
+  const videoId = typeof body.videoId === 'string' ? body.videoId.trim() : '';
+  const title = typeof body.title === 'string' ? body.title.trim() : '';
+  const artist = typeof body.artist === 'string' ? body.artist.trim() : '';
+  const thumbnail = typeof body.thumbnail === 'string' ? body.thumbnail.trim() : '';
+  if (!/^[A-Za-z0-9_-]{11}$/.test(videoId)) return 'Érvénytelen YouTube-videó.';
+  if (!title || title.length > 160 || !artist || artist.length > 120)
+    return 'A zeneszám címe és előadója kötelező.';
+  if (thumbnail && (!thumbnail.startsWith('https://i.ytimg.com/') || thumbnail.length > 2048))
+    return 'Érvénytelen YouTube-borítókép.';
+  return { videoId, title, artist, thumbnail };
+};
+
+router.get('/:id/music', async (req, res, next) => {
+  try {
+    const party = await Party.findById(req.params.id)
+      .select('host members musicPlaylist')
+      .populate('musicPlaylist.tracks.addedBy', 'nickname avatar');
+    if (!party) return res.status(404).json({ message: 'A buli nem található.' });
+    if (!canChat(party, req.user._id))
+      return res.status(403).json({ message: 'A zenelistát csak a buli résztvevői érhetik el.' });
+    res.json({ musicPlaylist: party.musicPlaylist?.title ? party.musicPlaylist : null });
+  } catch (error) {
+    next(error);
+  }
+});
+
+router.put('/:id/music/playlist', async (req, res, next) => {
+  try {
+    const party = await Party.findById(req.params.id);
+    if (!party) return res.status(404).json({ message: 'A buli nem található.' });
+    if (!party.host.equals(req.user._id))
+      return res.status(403).json({ message: 'Csak a házigazda választhat műsorlistát.' });
+    if (req.body.playlistId === null) {
+      party.musicPlaylist = undefined;
+    } else {
+      if (!validMusicId(req.body.playlistId))
+        return res.status(400).json({ message: 'Válassz egy érvényes saját műsorlistát.' });
+      const playlist = await MusicPlaylist.findOne({
+        _id: req.body.playlistId,
+        owner: req.user._id,
+      });
+      if (!playlist)
+        return res.status(404).json({ message: 'A saját műsorlista nem található.' });
+      party.musicPlaylist = {
+        sourcePlaylistId: playlist._id,
+        title: playlist.title,
+        tracks: playlist.tracks.map((track) => ({
+          videoId: track.videoId,
+          title: track.title,
+          artist: track.artist,
+          thumbnail: track.thumbnail,
+          addedBy: track.addedBy,
+          addedAt: track.addedAt,
+        })),
+      };
+    }
+    await party.save();
+    const updated = await Party.findById(party._id)
+      .select('host members musicPlaylist')
+      .populate('musicPlaylist.tracks.addedBy', 'nickname avatar');
+    res.json({ musicPlaylist: updated.musicPlaylist?.title ? updated.musicPlaylist : null });
+  } catch (error) {
+    next(error);
+  }
+});
+
+router.post('/:id/music/tracks', async (req, res, next) => {
+  try {
+    const party = await Party.findById(req.params.id);
+    if (!party) return res.status(404).json({ message: 'A buli nem található.' });
+    if (!canChat(party, req.user._id))
+      return res.status(403).json({ message: 'Csak a buli résztvevői tehetnek zenét a sorba.' });
+    if (!party.musicPlaylist?.title)
+      return res.status(409).json({ message: 'A házigazda még nem választott műsorlistát.' });
+    const track = validMusicTrack(req.body);
+    if (typeof track === 'string') return res.status(400).json({ message: track });
+    if (party.musicPlaylist.tracks.length >= 250)
+      return res.status(400).json({ message: 'A közös sorban legfeljebb 250 zeneszám lehet.' });
+    party.musicPlaylist.tracks.push({ ...track, addedBy: req.user._id });
+    await party.save();
+    const updated = await Party.findById(party._id)
+      .select('host members musicPlaylist')
+      .populate('musicPlaylist.tracks.addedBy', 'nickname avatar');
+    res.status(201).json({ musicPlaylist: updated.musicPlaylist });
+  } catch (error) {
+    next(error);
+  }
+});
+
+router.delete('/:id/music/tracks/:trackId', async (req, res, next) => {
+  try {
+    const party = await Party.findById(req.params.id);
+    if (!party) return res.status(404).json({ message: 'A buli nem található.' });
+    if (!canChat(party, req.user._id))
+      return res.status(403).json({ message: 'A zenelistát csak a buli résztvevői módosíthatják.' });
+    const track = party.musicPlaylist?.tracks.id(req.params.trackId);
+    if (!track) return res.status(404).json({ message: 'A zeneszám nem található.' });
+    if (!party.host.equals(req.user._id) && !track.addedBy.equals(req.user._id))
+      return res.status(403).json({ message: 'Ezt a zenét csak a hozzáadója vagy a házigazda törölheti.' });
+    track.deleteOne();
+    await party.save();
+    const updated = await Party.findById(party._id)
+      .select('host members musicPlaylist')
+      .populate('musicPlaylist.tracks.addedBy', 'nickname avatar');
+    res.json({ musicPlaylist: updated.musicPlaylist });
+  } catch (error) {
+    next(error);
+  }
+});
 
 router.get('/:id/chat/messages', async (req, res, next) => {
   try {

@@ -102,11 +102,45 @@ const esemenyAdatSchema = new mongoose.Schema(
         icon: { type: String, default: '✳', maxlength: 2048 },
       },
     ],
+    musicPlaylist: {
+      sourcePlaylistId: { type: mongoose.Schema.Types.ObjectId, ref: 'MusicPlaylist' },
+      title: { type: String, trim: true, maxlength: 80 },
+      tracks: [
+        {
+          videoId: { type: String, required: true, match: /^[A-Za-z0-9_-]{11}$/ },
+          title: { type: String, required: true, trim: true, maxlength: 160 },
+          artist: { type: String, required: true, trim: true, maxlength: 120 },
+          thumbnail: { type: String, default: '', maxlength: 2048 },
+          addedBy: { type: mongoose.Schema.Types.ObjectId, ref: 'User', required: true },
+          addedAt: { type: Date, default: Date.now },
+        },
+      ],
+    },
   },
   { timestamps: true }
 );
 
 esemenyAdatSchema.index({ visibility: 1, date: 1 });
+
+// A személyes zenei listák a bulihoz rendeléskor annak saját, közösen bővíthető sorává másolódnak.
+const zeneListaAdatSchema = new mongoose.Schema(
+  {
+    owner: { type: mongoose.Schema.Types.ObjectId, ref: 'User', required: true, index: true },
+    title: { type: String, required: true, trim: true, maxlength: 80 },
+    tracks: [
+      {
+        videoId: { type: String, required: true, match: /^[A-Za-z0-9_-]{11}$/ },
+        title: { type: String, required: true, trim: true, maxlength: 160 },
+        artist: { type: String, required: true, trim: true, maxlength: 120 },
+        thumbnail: { type: String, default: '', maxlength: 2048 },
+        addedBy: { type: mongoose.Schema.Types.ObjectId, ref: 'User', required: true },
+        addedAt: { type: Date, default: Date.now },
+      },
+    ],
+  },
+  { timestamps: true }
+);
+zeneListaAdatSchema.index({ owner: 1, updatedAt: -1 });
 
 // Meghívók és barátfelkérések értesítései.
 const ertesitesAdatSchema = new mongoose.Schema(
@@ -166,6 +200,7 @@ adminNaploAdatSchema.index({ createdAt: -1 });
 module.exports = {
   User: mongoose.model('User', felhasznaloAdatSchema),
   Party: mongoose.model('Party', esemenyAdatSchema),
+  MusicPlaylist: mongoose.model('MusicPlaylist', zeneListaAdatSchema),
   Notification: mongoose.model('Notification', ertesitesAdatSchema),
   PartyMessage: mongoose.model('PartyMessage', chatUzenetAdatSchema),
   AdminAuditLog: mongoose.model('AdminAuditLog', adminNaploAdatSchema),

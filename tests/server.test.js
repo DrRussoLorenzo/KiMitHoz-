@@ -29,10 +29,12 @@ const {
   connectTestDatabase,
   disconnectTestDatabase,
 } = require('./helpers/database');
-const { AdminAuditLog, Notification, Party, PartyMessage, User } = require('../src/models');
+const { AdminAuditLog, Notification, Party, PartyMessage, MusicPlaylist, User } = require('../src/models');
 const request = require('supertest');
 const { app } = require('../server');
 const { uploadImage, sendAuthenticatedImage } = require('../src/services/cloudinary');
+const { searchMusic } = require('../src/services/youtube');
+const { importPlaylist, parsePlaylistUrl } = require('../src/services/musicImport');
 
 describe('Szerver és adatbázis', () => {
   beforeAll(async () => {
@@ -343,6 +345,231 @@ describe('Szerver és adatbázis', () => {
       .set('Authorization', `Bearer ${token}`)
       .send({ name: 'Túl drága', quantity: '1', price: 1000001 })
       .expect(400);
+  });
+
+  it('a házigazda saját listát oszt meg, a résztvevők pedig zenét tehetnek a buli sorának végére', async () => {
+    const host = await User.create({
+      email: 'music-host@example.com',
+      username: 'music_host',
+      nickname: 'Házigazda',
+      passwordHash: 'test-password-hash',
+    });
+    const guest = await User.create({
+      email: 'music-guest@example.com',
+      username: 'music_guest',
+      nickname: 'Résztvevő',
+      passwordHash: 'test-password-hash',
+    });
+    const outsider = await User.create({
+      email: 'music-outsider@example.com',
+      username: 'music_outsider',
+      nickname: 'Kívülálló',
+      passwordHash: 'test-password-hash',
+    });
+    const party = await Party.create({
+      title: 'Zenés buli',
+      host: host._id,
+      date: new Date(Date.now() + 60 * 60 * 1000),
+      location: 'Budapest',
+      members: [
+        { user: host._id, status: 'going' },
+        { user: guest._id, status: 'going' },
+      ],
+    });
+    const hostToken = jwt.sign({ sub: host._id.toString() }, process.env.JWT_SECRET);
+    const guestToken = jwt.sign({ sub: guest._id.toString() }, process.env.JWT_SECRET);
+    const outsiderToken = jwt.sign({ sub: outsider._id.toString() }, process.env.JWT_SECRET);
+    const playlistResponse = await request(app)
+      .post('/api/music/playlists')
+      .set('Authorization', `Bearer ${hostToken}`)
+      .send({ title: 'Kedvencek' })
+      .expect(201);
+    const playlistId = playlistResponse.body.playlist._id;
+    const guestPlaylists = await request(app)
+      .get('/api/music/playlists')
+      .set('Authorization', `Bearer ${guestToken}`)
+      .expect(200);
+    expect(guestPlaylists.body.playlists).toHaveLength(0);
+
+    await request(app)
+      .post(`/api/music/playlists/${playlistId}/tracks`)
+      .set('Authorization', `Bearer ${hostToken}`)
+      .send({
+        videoId: 'abcdefghijk',
+        title: 'Első dal',
+        artist: 'Első előadó',
+        thumbnail: 'https://i.ytimg.com/vi/abcdefghijk/mqdefault.jpg',
+      })
+      .expect(201);
+    await request(app)
+      .put(`/api/parties/${party._id}/music/playlist`)
+      .set('Authorization', `Bearer ${hostToken}`)
+      .send({ playlistId })
+      .expect(200);
+    await request(app)
+      .post(`/api/parties/${party._id}/music/tracks`)
+      .set('Authorization', `Bearer ${guestToken}`)
+      .send({
+        videoId: 'lmnopqrstuv',
+        title: 'Következő dal',
+        artist: 'Másik előadó',
+      })
+      .expect(201);
+
+    const queue = await request(app)
+      .get(`/api/parties/${party._id}/music`)
+      .set('Authorization', `Bearer ${guestToken}`)
+      .expect(200);
+    expect(queue.body.musicPlaylist.tracks.map((track) => track.title)).toEqual([
+      'Első dal',
+      'Következő dal',
+    ]);
+    await request(app)
+      .get(`/api/parties/${party._id}/music`)
+      .set('Authorization', `Bearer ${outsiderToken}`)
+      .expect(403);
+    expect(await MusicPlaylist.countDocuments({ owner: host._id })).toBe(1);
+  });
+
+  it('érthető hibát jelez, ha a YouTube Data API nincs engedélyezve', async () => {
+    const previousFetch = global.fetch;
+    const previousApiKey = process.env.YOUTUBE_API_KEY;
+    process.env.YOUTUBE_API_KEY = 'test-key';
+    global.fetch = async () => ({
+      ok: false,
+      status: 403,
+      json: async () => ({ error: { errors: [{ reason: 'accessNotConfigured' }] } }),
+    });
+
+    try {
+      await expect(searchMusic('teszt zene')).rejects.toMatchObject({
+        status: 503,
+        message: expect.stringContaining('nincs engedélyezve'),
+      });
+    } finally {
+      global.fetch = previousFetch;
+      if (previousApiKey === undefined) delete process.env.YOUTUBE_API_KEY;
+      else process.env.YOUTUBE_API_KEY = previousApiKey;
+    }
+  });
+
+  it('felismeri a YouTube/Spotify playlist linkeket és YouTube-listát közvetlenül importál', async () => {
+    expect(parsePlaylistUrl('https://www.youtube.com/playlist?list=PLabcdefghijk')).toEqual({
+      provider: 'youtube',
+      id: 'PLabcdefghijk',
+    });
+    expect(parsePlaylistUrl('https://open.spotify.com/playlist/37i9dQZF1DXcBWIGoYBM5M')).toEqual({
+      provider: 'spotify',
+      id: '37i9dQZF1DXcBWIGoYBM5M',
+    });
+    expect(parsePlaylistUrl('https://example.com/playlist/unknown')).toBeNull();
+
+    const previousFetch = global.fetch;
+    const previousApiKey = process.env.YOUTUBE_API_KEY;
+    process.env.YOUTUBE_API_KEY = 'test-key';
+    global.fetch = async (url) => {
+      const requestUrl = new URL(url);
+      if (requestUrl.pathname.endsWith('/playlists'))
+        return {
+          ok: true,
+          status: 200,
+          json: async () => ({ items: [{ snippet: { title: 'Importált YouTube-lista' } }] }),
+        };
+      return {
+        ok: true,
+        status: 200,
+        json: async () => ({
+          items: [
+            {
+              snippet: {
+                title: 'Importált dal',
+                channelTitle: 'Zenei csatorna',
+                resourceId: { videoId: 'abcdefghijk' },
+              },
+            },
+          ],
+        }),
+      };
+    };
+
+    try {
+      await expect(
+        importPlaylist('https://music.youtube.com/playlist?list=PLabcdefghijk')
+      ).resolves.toMatchObject({
+        title: 'Importált YouTube-lista',
+        tracks: [{ videoId: 'abcdefghijk', title: 'Importált dal' }],
+      });
+    } finally {
+      global.fetch = previousFetch;
+      if (previousApiKey === undefined) delete process.env.YOUTUBE_API_KEY;
+      else process.env.YOUTUBE_API_KEY = previousApiKey;
+    }
+  });
+
+  it('Spotify playlist zenéit YouTube-keresési találatokká alakítja', async () => {
+    const previousFetch = global.fetch;
+    const previousApiKey = process.env.YOUTUBE_API_KEY;
+    const previousClientId = process.env.SPOTIFY_CLIENT_ID;
+    const previousClientSecret = process.env.SPOTIFY_CLIENT_SECRET;
+    process.env.YOUTUBE_API_KEY = 'test-key';
+    process.env.SPOTIFY_CLIENT_ID = 'spotify-client';
+    process.env.SPOTIFY_CLIENT_SECRET = 'spotify-secret';
+    global.fetch = async (url) => {
+      const requestUrl = new URL(url);
+      if (requestUrl.hostname === 'accounts.spotify.com')
+        return { ok: true, status: 200, json: async () => ({ access_token: 'spotify-token' }) };
+      if (requestUrl.hostname === 'api.spotify.com' && requestUrl.pathname.endsWith('/tracks'))
+        return {
+          ok: true,
+          status: 200,
+          json: async () => ({
+            items: [
+              {
+                track: {
+                  name: 'Spotify dal',
+                  artists: [{ name: 'Spotify előadó' }],
+                  is_local: false,
+                },
+              },
+            ],
+          }),
+        };
+      if (requestUrl.hostname === 'api.spotify.com')
+        return { ok: true, status: 200, json: async () => ({ name: 'Spotify kedvencek' }) };
+      return {
+        ok: true,
+        status: 200,
+        json: async () => ({
+          items: [
+            {
+              id: { videoId: 'abcdefghijk' },
+              snippet: {
+                title: 'Spotify dal official video',
+                channelTitle: 'Spotify előadó',
+                thumbnails: { medium: { url: 'https://i.ytimg.com/vi/abcdefghijk/mqdefault.jpg' } },
+              },
+            },
+          ],
+        }),
+      };
+    };
+
+    try {
+      await expect(
+        importPlaylist('https://open.spotify.com/playlist/37i9dQZF1DXcBWIGoYBM5M')
+      ).resolves.toMatchObject({
+        title: 'Spotify kedvencek',
+        tracks: [{ videoId: 'abcdefghijk', title: 'Spotify dal official video' }],
+      });
+    } finally {
+      global.fetch = previousFetch;
+      if (previousApiKey === undefined) delete process.env.YOUTUBE_API_KEY;
+      else process.env.YOUTUBE_API_KEY = previousApiKey;
+      if (previousClientId === undefined) delete process.env.SPOTIFY_CLIENT_ID;
+      else process.env.SPOTIFY_CLIENT_ID = previousClientId;
+      if (previousClientSecret === undefined) delete process.env.SPOTIFY_CLIENT_SECRET;
+      else process.env.SPOTIFY_CLIENT_SECRET = previousClientSecret;
+    }
   });
 
   it('a chatben megjelölt résztvevők értesítést kapnak, más fiók nem jelölhető meg', async () => {
