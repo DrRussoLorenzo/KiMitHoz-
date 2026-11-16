@@ -17,11 +17,13 @@
       en: 'Find out who is coming. Plan who brings what. Leave the rest to the evening.',
       de: 'Finde heraus, wer kommt. Plant gemeinsam, wer was mitbringt. Den Rest übernimmt der Abend.',
     },
-    'Ez már alakul!': { en: 'It is coming together!', de: 'Es nimmt Gestalt an!' },
-    'Hétvégén találkozunk 🎉': {
-      en: 'See you this weekend 🎉',
-      de: 'Wir sehen uns am Wochenende 🎉',
+    'Szervezés, egy helyen': { en: 'Planning, all in one place', de: 'Planung an einem Ort' },
+    'Résztvevők · időpont · hoznivalók': {
+      en: 'Guests · time · what to bring',
+      de: 'Gäste · Zeit · Mitbringen',
     },
+    éves: { en: 'years old', de: 'Jahre alt' },
+    'Életkor nincs megadva': { en: 'Age not provided', de: 'Alter nicht angegeben' },
     'ÜDV ÚJRA ITTHON': { en: 'WELCOME BACK', de: 'WILLKOMMEN ZURÜCK' },
     'Jó, hogy itt vagy.': { en: 'Good to have you here.', de: 'Schön, dass du da bist.' },
     'Jelentkezz be, és nézd meg, mi készül.': {
