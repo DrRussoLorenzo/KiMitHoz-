@@ -14,6 +14,7 @@ const allapot = {
   musicSearchResults: [],
   playingTrack: null,
   musicShuffle: {},
+  spotifyConnected: false,
   view: 'home',
   authMode: 'login',
   activeParty: null,
@@ -697,7 +698,7 @@ function musicPage() {
     ? `<section class="surface-card music-library"><div class="music-section-head"><div><span class="greeting-kicker">SAJÁT MŰSORLISTA</span><h2>${esc(selected.title)}</h2><p class="muted">A saját listád zenéit a bulidhoz is hozzáadhatod.</p></div><span id="music-playlist-track-count" class="gallery-count">${selected.tracks.length} / 250</span></div>${musicPlayerControls(selectedPlaying ? allapot.playingTrack : { shuffle: allapot.musicShuffle[`playlist:${selected._id}`] }, { playlistId: selected._id })}${selectedPlaying ? musicPlayerBlock(allapot.playingTrack) : ''}<div id="personal-music-track-list">${selected.tracks.map((track) => musicTrackRow(track, { playlistId: selected._id })).join('') || '<p class="muted">Még nincs zeneszám ebben a listában. Keress cím vagy előadó alapján!</p>'}</div><div class="music-search-block"><h3>Új zene hozzáadása</h3>${musicSearchForm({ playlistId: selected._id })}</div></section>`
     : empty('♫', 'Még nincs műsorlistád', 'Hozz létre egy saját listát, és keress bele zenéket.', '');
   return `${heading('A TE HANGULATOD', 'Zenék és műsorlisták', 'Készíts saját listákat, majd válaszd ki, melyik szóljon a buliban.')}
-    <section class="music-library-layout"><aside class="surface-card music-playlists"><div class="music-section-head"><div><h2>Saját listáid</h2><p class="muted">A listák csak neked láthatók.</p></div></div><form id="music-playlist-form" class="music-create-form"><label class="field">Új műsorlista neve<input name="title" maxlength="80" placeholder="Például: Nyári kedvencek" required></label><button class="button button-lime button-small" type="submit">＋ Létrehozás</button></form><form id="music-import-form" class="music-import-form"><label class="field">Nyilvános playlist importálása YouTube-ról vagy Spotify-ról<input name="url" type="url" placeholder="Lejátszási lista linkje" required></label><button class="button button-outline button-small" type="submit"><i class="fa-solid fa-download" aria-hidden="true"></i> Importálás</button><small>YouTube-listák közvetlenül importálhatók (max. 100 szám); Spotify-listák zenéit YouTube-on keressük meg.</small></form><div id="music-playlist-list">${playlistCards || '<p class="muted">A létrehozott listáid itt jelennek meg.</p>'}</div></aside>${selectedContent}</section>`;
+    <section class="music-library-layout"><aside class="surface-card music-playlists"><div class="music-section-head"><div><h2>Saját listáid</h2><p class="muted">A listák csak neked láthatók.</p></div></div><form id="music-playlist-form" class="music-create-form"><label class="field">Új műsorlista neve<input name="title" maxlength="80" placeholder="Például: Nyári kedvencek" required></label><button class="button button-lime button-small" type="submit">＋ Létrehozás</button></form><div class="spotify-connect-row"><span class="spotify-connect-status ${allapot.spotifyConnected ? 'connected' : ''}">${allapot.spotifyConnected ? 'Spotify csatlakoztatva' : 'Spotify-fiók nincs csatlakoztatva'}</span><button type="button" class="button button-outline button-small" data-action="connect-spotify">${allapot.spotifyConnected ? 'Újracsatlakoztatás' : 'Spotify csatlakoztatása'}</button></div><form id="music-import-form" class="music-import-form"><label class="field">Nyilvános playlist importálása YouTube-ról vagy Spotify-ról<input name="url" type="url" placeholder="Lejátszási lista linkje" required></label><button class="button button-outline button-small" type="submit"><i class="fa-solid fa-download" aria-hidden="true"></i> Importálás</button><small>YouTube-listák közvetlenül importálhatók (max. 100 szám). Spotify-listához csatlakoztasd a tulajdonos vagy egy közreműködő fiókját; Development mode esetén a tesztfelhasználók közé is add hozzá. Legfeljebb 25 számot keresünk meg YouTube-on.</small></form><div id="music-playlist-list">${playlistCards || '<p class="muted">A létrehozott listáid itt jelennek meg.</p>'}</div></aside>${selectedContent}</section>`;
 }
 
 function partyMusicContent(p) {
@@ -1265,6 +1266,14 @@ async function render() {
       if (allapot.view === 'music') toast(error.message, true);
     }
   }
+  if (allapot.view === 'music') {
+    try {
+      const { connected } = await api('/music/spotify/status');
+      allapot.spotifyConnected = connected;
+    } catch (_error) {
+      allapot.spotifyConnected = false;
+    }
+  }
   if (allapot.view === 'party-detail' && allapot.activeParty?._id) {
     const party = allapot.activeParty;
     if (party.host?._id === allapot.user.id || statusOf(party) === 'going') {
@@ -1424,6 +1433,11 @@ document.addEventListener('click', async (event) => {
         shuffleRemaining: shuffle ? shuffledTrackIds(queue, trackId) : [],
       };
       await render();
+      return;
+    }
+    if (action === 'connect-spotify') {
+      const { url } = await api('/music/spotify/connect');
+      location.assign(url);
       return;
     }
     if (action === 'toggle-music-shuffle') {
@@ -2142,6 +2156,13 @@ async function boot() {
       allapot.view = 'home';
       saveRoute('replace');
       await render();
+    }
+    const spotifyStatus = new URLSearchParams(location.search).get('spotify');
+    if (spotifyStatus) {
+      history.replaceState(history.state, '', `${location.pathname}${location.hash}`);
+      if (spotifyStatus === 'connected') toast('A Spotify-fiók csatlakozott. Most importálhatod a listát.');
+      else if (spotifyStatus === 'denied') toast('A Spotify-fiók csatlakoztatását megszakítottad.', true);
+      else toast('A Spotify-csatlakozás nem sikerült. Ellenőrizd a beállításokat, majd próbáld újra.', true);
     }
   } catch (_error) {
     logout(false);

@@ -32,6 +32,11 @@ const felhasznaloAdatSchema = new mongoose.Schema(
       facePhoto: { type: String, select: false },
     },
     passwordHash: { type: String, required: true, select: false },
+    spotify: {
+      accessToken: { type: String, default: '', select: false },
+      refreshToken: { type: String, default: '', select: false },
+      expiresAt: { type: Date, select: false },
+    },
     avatar: { type: String, default: '' },
     bio: { type: String, default: '', maxlength: 240 },
     friends: [{ type: mongoose.Schema.Types.ObjectId, ref: 'User' }],

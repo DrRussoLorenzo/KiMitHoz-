@@ -514,18 +514,27 @@ describe('Szerver és adatbázis', () => {
     process.env.YOUTUBE_API_KEY = 'test-key';
     process.env.SPOTIFY_CLIENT_ID = 'spotify-client';
     process.env.SPOTIFY_CLIENT_SECRET = 'spotify-secret';
+    const spotifyUser = await User.create({
+      email: 'spotify-import@example.com',
+      username: 'spotify_import',
+      nickname: 'Spotify import',
+      passwordHash: 'test-password-hash',
+      spotify: {
+        accessToken: 'spotify-token',
+        refreshToken: 'spotify-refresh-token',
+        expiresAt: new Date(Date.now() + 60 * 60 * 1000),
+      },
+    });
     global.fetch = async (url) => {
       const requestUrl = new URL(url);
-      if (requestUrl.hostname === 'accounts.spotify.com')
-        return { ok: true, status: 200, json: async () => ({ access_token: 'spotify-token' }) };
-      if (requestUrl.hostname === 'api.spotify.com' && requestUrl.pathname.endsWith('/tracks'))
+      if (requestUrl.hostname === 'api.spotify.com' && requestUrl.pathname.endsWith('/items'))
         return {
           ok: true,
           status: 200,
           json: async () => ({
             items: [
               {
-                track: {
+                item: {
                   name: 'Spotify dal',
                   artists: [{ name: 'Spotify előadó' }],
                   is_local: false,
@@ -556,7 +565,10 @@ describe('Szerver és adatbázis', () => {
 
     try {
       await expect(
-        importPlaylist('https://open.spotify.com/playlist/37i9dQZF1DXcBWIGoYBM5M')
+        importPlaylist(
+          'https://open.spotify.com/playlist/37i9dQZF1DXcBWIGoYBM5M',
+          spotifyUser._id
+        )
       ).resolves.toMatchObject({
         title: 'Spotify kedvencek',
         tracks: [{ videoId: 'abcdefghijk', title: 'Spotify dal official video' }],
@@ -565,6 +577,45 @@ describe('Szerver és adatbázis', () => {
       global.fetch = previousFetch;
       if (previousApiKey === undefined) delete process.env.YOUTUBE_API_KEY;
       else process.env.YOUTUBE_API_KEY = previousApiKey;
+      if (previousClientId === undefined) delete process.env.SPOTIFY_CLIENT_ID;
+      else process.env.SPOTIFY_CLIENT_ID = previousClientId;
+      if (previousClientSecret === undefined) delete process.env.SPOTIFY_CLIENT_SECRET;
+      else process.env.SPOTIFY_CLIENT_SECRET = previousClientSecret;
+    }
+  });
+
+  it('érthető üzenettel jelzi, ha a csatlakoztatott Spotify-fiók nem fér hozzá a listához', async () => {
+    const previousFetch = global.fetch;
+    const previousClientId = process.env.SPOTIFY_CLIENT_ID;
+    const previousClientSecret = process.env.SPOTIFY_CLIENT_SECRET;
+    process.env.SPOTIFY_CLIENT_ID = 'spotify-client';
+    process.env.SPOTIFY_CLIENT_SECRET = 'spotify-secret';
+    const spotifyUser = await User.create({
+      email: 'spotify-forbidden@example.com',
+      username: 'spotify_forbidden',
+      nickname: 'Spotify tiltott',
+      passwordHash: 'test-password-hash',
+      spotify: {
+        accessToken: 'spotify-token',
+        refreshToken: 'spotify-refresh-token',
+        expiresAt: new Date(Date.now() + 60 * 60 * 1000),
+      },
+    });
+    global.fetch = async () => ({
+      ok: false,
+      status: 403,
+      json: async () => ({ error: { status: 403, message: 'Forbidden' } }),
+    });
+
+    try {
+      await expect(
+        importPlaylist('https://open.spotify.com/playlist/37i9dQZF1DXcBWIGoYBM5M', spotifyUser._id)
+      ).rejects.toMatchObject({
+        status: 403,
+        message: expect.stringContaining('lista tulajdonosának'),
+      });
+    } finally {
+      global.fetch = previousFetch;
       if (previousClientId === undefined) delete process.env.SPOTIFY_CLIENT_ID;
       else process.env.SPOTIFY_CLIENT_ID = previousClientId;
       if (previousClientSecret === undefined) delete process.env.SPOTIFY_CLIENT_SECRET;

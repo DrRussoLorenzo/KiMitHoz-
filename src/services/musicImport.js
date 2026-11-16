@@ -1,4 +1,6 @@
 const { searchMusic } = require('./youtube');
+const jwt = require('jsonwebtoken');
+const { User } = require('../models');
 
 const MAX_IMPORTED_TRACKS = 100;
 const SPOTIFY_IMPORT_LIMIT = 25;
@@ -30,12 +32,36 @@ function parsePlaylistUrl(value) {
   return null;
 }
 
-async function fetchJson(url, options = {}) {
+async function fetchJson(url, options = {}, provider = 'külső lejátszási lista') {
   const response = await fetch(url, { signal: AbortSignal.timeout(12000), ...options });
   const data = await response.json().catch(() => ({}));
   if (!response.ok) {
-    const error = new Error(`A külső lejátszási lista szolgáltatója hibát jelzett (HTTP ${response.status}).`);
-    error.status = response.status === 404 ? 404 : 502;
+    let message = `${provider} hibát jelzett (HTTP ${response.status}).`;
+    let status = response.status === 404 ? 404 : 502;
+    if (provider === 'Spotify hitelesítés' && [400, 401, 403].includes(response.status)) {
+      if (data.error === 'invalid_grant') {
+        message = 'A Spotify-hozzáférés lejárt vagy visszavonták. Csatlakoztasd újra a Spotify-fiókodat.';
+        status = 409;
+      } else {
+        message =
+          'A Spotify hitelesítés nem sikerült. Ellenőrizd a kliensazonosítót, titkot és hogy a SPOTIFY_REDIRECT_URI pontosan egyezzen a Spotify Dashboardon megadott címmel.';
+        status = 503;
+      }
+    } else if (provider === 'Spotify' && response.status === 403) {
+      message =
+        'A Spotify nem enged hozzáférést ehhez a listához. Csatlakozz a lista tulajdonosának vagy egy közreműködőnek a fiókjával. Ha az app Development mode-ban van, a Spotify Dashboardon a csatlakozó fiókot is add hozzá az engedélyezett felhasználókhoz. A nyilvános lista önmagában nem ad API-hozzáférést.';
+      status = 403;
+    } else if (provider === 'Spotify' && response.status === 401) {
+      message = 'A Spotify-kapcsolat lejárt. Csatlakoztasd újra a Spotify-fiókodat.';
+      status = 401;
+    } else if (provider === 'Spotify' && response.status === 429) {
+      message = 'A Spotify API kérési limitje betelt. Várj néhány percet, majd próbáld újra.';
+      status = 429;
+    } else if (response.status === 429) {
+      status = 429;
+    }
+    const error = new Error(message);
+    error.status = status;
     throw error;
   }
   return data;
@@ -91,7 +117,7 @@ async function collectYouTubePlaylistTracks(playlistId, apiKey) {
   return tracks;
 }
 
-async function spotifyAccessToken() {
+async function spotifyAccessToken(userId) {
   const clientId = process.env.SPOTIFY_CLIENT_ID;
   const clientSecret = process.env.SPOTIFY_CLIENT_SECRET;
   if (!clientId || !clientSecret) {
@@ -99,8 +125,26 @@ async function spotifyAccessToken() {
     error.status = 503;
     throw error;
   }
+  const user = await User.findById(userId).select(
+    '+spotify.accessToken +spotify.refreshToken +spotify.expiresAt'
+  );
+  if (!user?.spotify?.refreshToken) {
+    const error = new Error('Előbb csatlakoztasd a Spotify-fiókodat a Zene oldalon.');
+    error.status = 409;
+    throw error;
+  }
+  if (
+    user.spotify.accessToken &&
+    user.spotify.expiresAt &&
+    user.spotify.expiresAt.getTime() > Date.now() + 60_000
+  )
+    return user.spotify.accessToken;
+
   const authorization = Buffer.from(`${clientId}:${clientSecret}`).toString('base64');
-  const body = new URLSearchParams({ grant_type: 'client_credentials' });
+  const body = new URLSearchParams({
+    grant_type: 'refresh_token',
+    refresh_token: user.spotify.refreshToken,
+  });
   const data = await fetchJson('https://accounts.spotify.com/api/token', {
     method: 'POST',
     headers: {
@@ -108,21 +152,27 @@ async function spotifyAccessToken() {
       'Content-Type': 'application/x-www-form-urlencoded',
     },
     body,
-  });
-  return data.access_token;
+  }, 'Spotify hitelesítés');
+  user.spotify.accessToken = data.access_token;
+  user.spotify.expiresAt = new Date(Date.now() + (Number(data.expires_in) || 3600) * 1000);
+  if (data.refresh_token) user.spotify.refreshToken = data.refresh_token;
+  await user.save();
+  return user.spotify.accessToken;
 }
 
-async function importSpotifyPlaylist(playlistId) {
-  const token = await spotifyAccessToken();
-  const params = new URLSearchParams({ limit: '100', offset: '0' });
-  const data = await fetchJson(`https://api.spotify.com/v1/playlists/${encodeURIComponent(playlistId)}/tracks?${params}`, {
-    headers: { Authorization: `Bearer ${token}` },
-  });
-  const playlist = await fetchJson(`https://api.spotify.com/v1/playlists/${encodeURIComponent(playlistId)}?fields=name`, {
-    headers: { Authorization: `Bearer ${token}` },
-  });
+async function importSpotifyPlaylist(playlistId, userId) {
+  const token = await spotifyAccessToken(userId);
+  const params = new URLSearchParams({ limit: String(SPOTIFY_IMPORT_LIMIT), offset: '0', market: 'HU' });
+  const [data, playlist] = await Promise.all([
+    fetchJson(`https://api.spotify.com/v1/playlists/${encodeURIComponent(playlistId)}/items?${params}`, {
+      headers: { Authorization: `Bearer ${token}` },
+    }, 'Spotify'),
+    fetchJson(`https://api.spotify.com/v1/playlists/${encodeURIComponent(playlistId)}?fields=name`, {
+      headers: { Authorization: `Bearer ${token}` },
+    }, 'Spotify'),
+  ]);
   const sourceTracks = (data.items || [])
-    .map((item) => item.track)
+    .map((item) => item.item || item.track)
     .filter((track) => track && !track.is_local && track.name)
     .slice(0, SPOTIFY_IMPORT_LIMIT);
   const converted = Array(sourceTracks.length);
@@ -144,7 +194,90 @@ async function importSpotifyPlaylist(playlistId) {
   };
 }
 
-async function importPlaylist(url) {
+function spotifyRedirectUri() {
+  if (process.env.SPOTIFY_REDIRECT_URI) return process.env.SPOTIFY_REDIRECT_URI;
+  const appOrigin = process.env.CLIENT_ORIGIN || `http://localhost:${process.env.PORT || 3000}`;
+  try {
+    return new URL('/api/music/spotify/callback', appOrigin).toString();
+  } catch (_error) {
+    const error = new Error('A Spotify-kapcsolathoz állítsd be a SPOTIFY_REDIRECT_URI változót, és regisztráld ugyanazt a címet a Spotify Developer Dashboardon.');
+    error.status = 503;
+    throw error;
+  }
+}
+
+function spotifyAuthorizationUrl(userId) {
+  if (!process.env.SPOTIFY_CLIENT_ID || !process.env.SPOTIFY_CLIENT_SECRET) {
+    const error = new Error('Állítsd be a SPOTIFY_CLIENT_ID és SPOTIFY_CLIENT_SECRET értékét a szerver .env fájljában.');
+    error.status = 503;
+    throw error;
+  }
+  const state = jwt.sign({ sub: String(userId), purpose: 'spotify-connect' }, process.env.JWT_SECRET, {
+    expiresIn: '10m',
+  });
+  const params = new URLSearchParams({
+    client_id: process.env.SPOTIFY_CLIENT_ID,
+    response_type: 'code',
+    redirect_uri: spotifyRedirectUri(),
+    scope: 'playlist-read-private playlist-read-collaborative',
+    state,
+  });
+  return `https://accounts.spotify.com/authorize?${params}`;
+}
+
+async function completeSpotifyAuthorization(code, state) {
+  let stateData;
+  try {
+    stateData = jwt.verify(state, process.env.JWT_SECRET);
+  } catch (_error) {
+    const error = new Error('A Spotify-kapcsolat lejárt vagy érvénytelen. Indítsd újra a csatlakoztatást.');
+    error.status = 400;
+    throw error;
+  }
+  if (stateData.purpose !== 'spotify-connect' || !/^[a-f\d]{24}$/i.test(stateData.sub)) {
+    const error = new Error('Érvénytelen Spotify-kapcsolati kérés.');
+    error.status = 400;
+    throw error;
+  }
+  const clientId = process.env.SPOTIFY_CLIENT_ID;
+  const clientSecret = process.env.SPOTIFY_CLIENT_SECRET;
+  if (!clientId || !clientSecret) {
+    const error = new Error('Hiányzik a Spotify kliensazonosító vagy klienskulcs.');
+    error.status = 503;
+    throw error;
+  }
+  const body = new URLSearchParams({
+    grant_type: 'authorization_code',
+    code,
+    redirect_uri: spotifyRedirectUri(),
+  });
+  const authorization = Buffer.from(`${clientId}:${clientSecret}`).toString('base64');
+  const token = await fetchJson('https://accounts.spotify.com/api/token', {
+    method: 'POST',
+    headers: {
+      Authorization: `Basic ${authorization}`,
+      'Content-Type': 'application/x-www-form-urlencoded',
+    },
+    body,
+  }, 'Spotify hitelesítés');
+  const user = await User.findById(stateData.sub).select(
+    '+spotify.accessToken +spotify.refreshToken +spotify.expiresAt'
+  );
+  if (!user) {
+    const error = new Error('A KiMitHoz-fiók már nem található.');
+    error.status = 404;
+    throw error;
+  }
+  user.spotify = {
+    accessToken: token.access_token,
+    refreshToken: token.refresh_token || user.spotify?.refreshToken || '',
+    expiresAt: new Date(Date.now() + (Number(token.expires_in) || 3600) * 1000),
+  };
+  await user.save();
+  return user;
+}
+
+async function importPlaylist(url, userId) {
   const source = parsePlaylistUrl(url);
   if (!source) {
     const error = new Error('Adj meg egy nyilvános YouTube- vagy Spotify-lejátszási lista linket.');
@@ -153,7 +286,13 @@ async function importPlaylist(url) {
   }
   return source.provider === 'youtube'
     ? importYouTubePlaylist(source.id)
-    : importSpotifyPlaylist(source.id);
+    : importSpotifyPlaylist(source.id, userId);
 }
 
-module.exports = { importPlaylist, parsePlaylistUrl };
+module.exports = {
+  completeSpotifyAuthorization,
+  importPlaylist,
+  parsePlaylistUrl,
+  spotifyAuthorizationUrl,
+  spotifyRedirectUri,
+};

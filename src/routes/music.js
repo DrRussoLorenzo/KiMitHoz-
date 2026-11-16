@@ -1,11 +1,45 @@
 const router = require('express').Router();
 const rateLimit = require('express-rate-limit');
 const auth = require('../middleware/auth');
-const { MusicPlaylist } = require('../models');
+const { MusicPlaylist, User } = require('../models');
 const { searchMusic } = require('../services/youtube');
-const { importPlaylist } = require('../services/musicImport');
+const {
+  completeSpotifyAuthorization,
+  importPlaylist,
+  spotifyAuthorizationUrl,
+} = require('../services/musicImport');
+
+router.get('/spotify/callback', async (req, res) => {
+  if (req.query.error) return res.redirect('/?spotify=denied');
+  if (typeof req.query.code !== 'string' || typeof req.query.state !== 'string')
+    return res.redirect('/?spotify=error');
+  try {
+    await completeSpotifyAuthorization(req.query.code, req.query.state);
+    res.redirect('/?spotify=connected');
+  } catch (error) {
+    console.error('Spotify OAuth callback failed:', error.message);
+    res.redirect('/?spotify=error');
+  }
+});
 
 router.use(auth);
+
+router.get('/spotify/connect', (req, res, next) => {
+  try {
+    res.json({ url: spotifyAuthorizationUrl(req.user._id) });
+  } catch (error) {
+    next(error);
+  }
+});
+
+router.get('/spotify/status', async (req, res, next) => {
+  try {
+    const user = await User.findById(req.user._id).select('+spotify.refreshToken');
+    res.json({ connected: Boolean(user?.spotify?.refreshToken) });
+  } catch (error) {
+    next(error);
+  }
+});
 
 const musicSearchLimit = rateLimit({
   windowMs: 60 * 1000,
@@ -74,7 +108,7 @@ router.post('/playlists/import', playlistImportLimit, async (req, res, next) => 
     const url = typeof req.body.url === 'string' ? req.body.url.trim() : '';
     if (!url || url.length > 2048)
       return res.status(400).json({ message: 'Adj meg egy érvényes lejátszási lista linket.' });
-    const imported = await importPlaylist(url);
+    const imported = await importPlaylist(url, req.user._id);
     const requestedTitle = typeof req.body.title === 'string' ? req.body.title.trim() : '';
     const title = (requestedTitle || imported.title || 'Importált műsorlista').slice(0, 80);
     const playlist = await MusicPlaylist.create({
