@@ -142,10 +142,18 @@ const zeneListaAdatSchema = new mongoose.Schema(
         addedAt: { type: Date, default: Date.now },
       },
     ],
+    sharedWith: [
+      {
+        user: { type: mongoose.Schema.Types.ObjectId, ref: 'User', required: true },
+        invitedBy: { type: mongoose.Schema.Types.ObjectId, ref: 'User', required: true },
+        invitedAt: { type: Date, default: Date.now },
+      },
+    ],
   },
   { timestamps: true }
 );
 zeneListaAdatSchema.index({ owner: 1, updatedAt: -1 });
+zeneListaAdatSchema.index({ 'sharedWith.user': 1 });
 
 // Meghívók és barátfelkérések értesítései.
 const ertesitesAdatSchema = new mongoose.Schema(

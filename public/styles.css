@@ -2642,6 +2642,172 @@ a:focus-visible {
   align-items: start;
   gap: 16px;
 }
+.music-library-main {
+  display: grid;
+  min-width: 0;
+  gap: 16px;
+}
+.playlist-sharing {
+  margin-top: 18px;
+  padding-top: 16px;
+  border-top: 1px solid var(--line);
+}
+.playlist-sharing h3,
+.playlist-sharing p {
+  margin-top: 0;
+}
+.playlist-sharing-top {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+}
+.playlist-sharing-top > div {
+  display: grid;
+  gap: 3px;
+}
+.playlist-sharing-top strong {
+  font-size: 13px;
+}
+.playlist-sharing-top small {
+  color: var(--muted);
+  font-size: 11px;
+}
+.playlist-people {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: flex-start;
+  gap: 10px;
+  margin: 12px 0 2px;
+}
+.playlist-person {
+  position: relative;
+  display: grid;
+  justify-items: center;
+  gap: 4px;
+  width: 52px;
+  color: var(--muted);
+  font-size: 10px;
+  text-align: center;
+}
+.playlist-person-avatar {
+  display: block;
+  width: 38px;
+  height: 38px;
+}
+.playlist-member-avatar {
+  width: 38px;
+  height: 38px;
+  overflow: hidden;
+  border: 2px solid var(--surface);
+  border-radius: 50%;
+  background: var(--lav);
+  box-shadow: 0 0 0 1px var(--line);
+  color: var(--primary);
+  font-size: 13px;
+}
+.playlist-member-avatar img {
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+}
+.playlist-person small {
+  max-width: 62px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.playlist-member-remove {
+  position: absolute;
+  top: -3px;
+  right: 3px;
+  display: grid;
+  width: 17px;
+  height: 17px;
+  place-items: center;
+  padding: 0;
+  border: 1px solid var(--surface);
+  border-radius: 50%;
+  background: var(--muted);
+  color: #fff;
+  font-size: 12px;
+  line-height: 1;
+}
+.playlist-member-remove:hover,
+.playlist-member-remove:focus-visible {
+  background: #bd4d59;
+}
+.playlist-invite-toggle {
+  white-space: nowrap;
+}
+.playlist-invite-form,
+.shared-playlist-attach {
+  display: flex;
+  align-items: flex-end;
+  gap: 9px;
+  margin: 10px 0;
+}
+.playlist-invite-form .field,
+.shared-playlist-attach .field {
+  flex: 1;
+  min-width: 0;
+  margin: 0;
+}
+.playlist-invite-form > button,
+.shared-playlist-attach > button {
+  flex: 0 0 auto;
+  min-height: 42px;
+}
+.playlist-invite-row,
+.shared-playlist-card {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  margin-top: 8px;
+  padding: 10px 12px;
+  border: 1px solid var(--line);
+  border-radius: 12px;
+  background: var(--surface);
+}
+.shared-playlist-attach select {
+  width: 100%;
+}
+.playlist-invite-row > span,
+.shared-playlist-info {
+  display: grid;
+  min-width: 0;
+  gap: 4px;
+}
+.playlist-invite-row small,
+.shared-playlist-info small {
+  color: var(--muted);
+  font-size: 11px;
+}
+.playlist-revoke {
+  flex: 0 0 auto;
+}
+.shared-playlist-card {
+  align-items: flex-start;
+  flex-direction: column;
+}
+.shared-playlist-info strong {
+  overflow-wrap: anywhere;
+}
+.shared-playlist-attach {
+  width: 100%;
+}
+.shared-playlists {
+  min-width: 0;
+  padding: 20px;
+}
+.shared-playlists .music-section-head h2 {
+  margin: 0 0 5px;
+}
+.shared-playlists .music-section-head p {
+  margin: 0;
+  font-size: 12px;
+}
 .music-playlists,
 .music-library,
 .party-music {
@@ -2910,6 +3076,18 @@ a:focus-visible {
   .music-track-row .button {
     padding: 7px 8px;
     font-size: 10px;
+  }
+  .playlist-invite-form,
+  .shared-playlist-attach {
+    align-items: stretch;
+    flex-direction: column;
+  }
+  .playlist-sharing-top {
+    align-items: flex-start;
+  }
+  .playlist-invite-form > button,
+  .shared-playlist-attach > button {
+    width: 100%;
   }
   .music-thumbnail {
     flex-basis: 44px;

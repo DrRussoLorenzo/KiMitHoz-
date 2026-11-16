@@ -168,10 +168,10 @@ router.put('/:id/music/playlist', async (req, res, next) => {
         return res.status(400).json({ message: 'Válassz egy érvényes saját műsorlistát.' });
       const playlist = await MusicPlaylist.findOne({
         _id: req.body.playlistId,
-        owner: req.user._id,
+        $or: [{ owner: req.user._id }, { 'sharedWith.user': req.user._id }],
       });
       if (!playlist)
-        return res.status(404).json({ message: 'A saját műsorlista nem található.' });
+        return res.status(404).json({ message: 'A saját vagy megosztott műsorlista nem található.' });
       party.musicPlaylist = {
         sourcePlaylistId: playlist._id,
         title: playlist.title,

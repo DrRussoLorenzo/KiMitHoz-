@@ -431,6 +431,88 @@ describe('Szerver és adatbázis', () => {
     expect(await MusicPlaylist.countDocuments({ owner: host._id })).toBe(1);
   });
 
+  it('a műsorlista meghívottja hozzáadhatja a listát a saját bulijához, kívülálló nem', async () => {
+    const owner = await User.create({
+      email: 'playlist-owner@example.com',
+      username: 'playlist_owner',
+      nickname: 'Lista tulajdonos',
+      passwordHash: 'test-password-hash',
+    });
+    const invited = await User.create({
+      email: 'playlist-invited@example.com',
+      username: 'playlist_invited',
+      nickname: 'Meghívott',
+      passwordHash: 'test-password-hash',
+    });
+    const outsider = await User.create({
+      email: 'playlist-outsider@example.com',
+      username: 'playlist_outsider',
+      nickname: 'Kívülálló',
+      passwordHash: 'test-password-hash',
+    });
+    owner.friends.addToSet(invited._id);
+    await owner.save();
+    const party = await Party.create({
+      title: 'Meghívott saját bulija',
+      host: invited._id,
+      date: new Date(Date.now() + 60 * 60 * 1000),
+      location: 'Budapest',
+      members: [{ user: invited._id, status: 'going' }],
+    });
+    const ownerToken = jwt.sign({ sub: owner._id.toString() }, process.env.JWT_SECRET);
+    const invitedToken = jwt.sign({ sub: invited._id.toString() }, process.env.JWT_SECRET);
+    const outsiderToken = jwt.sign({ sub: outsider._id.toString() }, process.env.JWT_SECRET);
+    const playlist = await MusicPlaylist.create({
+      owner: owner._id,
+      title: 'Megosztott kedvencek',
+      tracks: [
+        {
+          videoId: 'abcdefghijk',
+          title: 'Megosztott szám',
+          artist: 'Előadó',
+          addedBy: owner._id,
+        },
+      ],
+    });
+
+    await request(app)
+      .post(`/api/music/playlists/${playlist._id}/invites`)
+      .set('Authorization', `Bearer ${ownerToken}`)
+      .send({ userId: invited._id })
+      .expect(201);
+    const library = await request(app)
+      .get('/api/music/playlists')
+      .set('Authorization', `Bearer ${invitedToken}`)
+      .expect(200);
+    expect(library.body.sharedPlaylists.map((item) => String(item._id))).toContain(
+      String(playlist._id)
+    );
+
+    await request(app)
+      .put(`/api/parties/${party._id}/music/playlist`)
+      .set('Authorization', `Bearer ${invitedToken}`)
+      .send({ playlistId: String(playlist._id) })
+      .expect(200);
+    const savedParty = await Party.findById(party._id);
+    expect(savedParty.musicPlaylist.title).toBe('Megosztott kedvencek');
+    expect(savedParty.musicPlaylist.tracks).toHaveLength(1);
+    await request(app)
+      .put(`/api/parties/${party._id}/music/playlist`)
+      .set('Authorization', `Bearer ${outsiderToken}`)
+      .send({ playlistId: String(playlist._id) })
+      .expect(403);
+
+    await request(app)
+      .delete(`/api/music/playlists/${playlist._id}/invites/${invited._id}`)
+      .set('Authorization', `Bearer ${ownerToken}`)
+      .expect(200);
+    await request(app)
+      .put(`/api/parties/${party._id}/music/playlist`)
+      .set('Authorization', `Bearer ${invitedToken}`)
+      .send({ playlistId: String(playlist._id) })
+      .expect(404);
+  });
+
   it('érthető hibát jelez, ha a YouTube Data API nincs engedélyezve', async () => {
     const previousFetch = global.fetch;
     const previousApiKey = process.env.YOUTUBE_API_KEY;

@@ -82,10 +82,83 @@ router.get('/search', musicSearchLimit, async (req, res, next) => {
 
 router.get('/playlists', async (req, res, next) => {
   try {
-    const playlists = await MusicPlaylist.find({ owner: req.user._id })
-      .sort({ updatedAt: -1 })
+    const [playlists, sharedPlaylists] = await Promise.all([
+      MusicPlaylist.find({ owner: req.user._id })
+        .populate('sharedWith.user', 'username nickname avatar')
+        .sort({ updatedAt: -1 })
+        .lean(),
+      MusicPlaylist.find({ 'sharedWith.user': req.user._id })
+        .select('owner title tracks updatedAt createdAt')
+        .populate('owner', 'username nickname avatar')
+        .sort({ updatedAt: -1 })
+        .lean(),
+    ]);
+    res.json({ playlists, sharedPlaylists });
+  } catch (error) {
+    next(error);
+  }
+});
+
+router.post('/playlists/:playlistId/invites', async (req, res, next) => {
+  try {
+    if (!validId(req.params.playlistId) || !validId(req.body.userId))
+      return res.status(400).json({ message: 'Érvénytelen műsorlista vagy felhasználó.' });
+    const playlist = await MusicPlaylist.findOne({
+      _id: req.params.playlistId,
+      owner: req.user._id,
+    });
+    if (!playlist) return res.status(404).json({ message: 'A saját műsorlista nem található.' });
+    if (!req.user.friends.some((friendId) => friendId.equals(req.body.userId)))
+      return res.status(403).json({ message: 'Műsorlistát csak saját ismerősnek oszthatsz meg.' });
+    const friend = await User.findById(req.body.userId).select('nickname username');
+    if (!friend) return res.status(404).json({ message: 'A felhasználó nem található.' });
+    if (playlist.sharedWith.some((entry) => entry.user.equals(friend._id)))
+      return res.status(409).json({ message: 'Ez az ismerős már hozzáfér a műsorlistához.' });
+    playlist.sharedWith.push({ user: friend._id, invitedBy: req.user._id });
+    await playlist.save();
+    res.status(201).json({
+      message: `${friend.nickname} hozzáférést kapott a műsorlistához.`,
+      sharedWith: await MusicPlaylist.findById(playlist._id)
+        .select('sharedWith')
+        .populate('sharedWith.user', 'username nickname avatar')
+        .then((updated) => updated.sharedWith),
+    });
+  } catch (error) {
+    next(error);
+  }
+});
+
+router.delete('/playlists/:playlistId/invites/:userId', async (req, res, next) => {
+  try {
+    if (!validId(req.params.playlistId) || !validId(req.params.userId))
+      return res.status(404).json({ message: 'A műsorlista-meghívó nem található.' });
+    const playlist = await MusicPlaylist.findOne({
+      _id: req.params.playlistId,
+      owner: req.user._id,
+    });
+    if (!playlist) return res.status(404).json({ message: 'A saját műsorlista nem található.' });
+    const invite = playlist.sharedWith.find((entry) => entry.user.equals(req.params.userId));
+    if (!invite) return res.status(404).json({ message: 'A műsorlista-meghívó nem található.' });
+    invite.deleteOne();
+    await playlist.save();
+    res.json({ message: 'A hozzáférés visszavonva.' });
+  } catch (error) {
+    next(error);
+  }
+});
+
+router.get('/playlists/:playlistId', async (req, res, next) => {
+  try {
+    if (!validId(req.params.playlistId))
+      return res.status(404).json({ message: 'A műsorlista nem található.' });
+    const playlist = await MusicPlaylist.findOne({
+      _id: req.params.playlistId,
+      $or: [{ owner: req.user._id }, { 'sharedWith.user': req.user._id }],
+    })
+      .populate('owner', 'username nickname avatar')
       .lean();
-    res.json({ playlists });
+    if (!playlist) return res.status(404).json({ message: 'A műsorlista nem található.' });
+    res.json({ playlist });
   } catch (error) {
     next(error);
   }
