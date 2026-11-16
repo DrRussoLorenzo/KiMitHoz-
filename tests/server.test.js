@@ -528,21 +528,26 @@ describe('Szerver és adatbázis', () => {
     global.fetch = async (url) => {
       const requestUrl = new URL(url);
       if (requestUrl.hostname === 'api.spotify.com' && requestUrl.pathname.endsWith('/items'))
+      {
+        const offset = Number(requestUrl.searchParams.get('offset'));
         return {
           ok: true,
           status: 200,
           json: async () => ({
-            items: [
-              {
-                item: {
-                  name: 'Spotify dal',
-                  artists: [{ name: 'Spotify előadó' }],
-                  is_local: false,
-                },
+            items: Array.from({ length: offset === 0 ? 26 : 1 }, (_, index) => ({
+              item: {
+                name: `Spotify dal ${offset + index}`,
+                artists: [{ name: 'Spotify előadó' }],
+                is_local: false,
               },
-            ],
+            })),
+            next:
+              offset === 0
+                ? 'https://api.spotify.com/v1/playlists/test/items?offset=26'
+                : null,
           }),
         };
+      }
       if (requestUrl.hostname === 'api.spotify.com')
         return { ok: true, status: 200, json: async () => ({ name: 'Spotify kedvencek' }) };
       return {
@@ -564,15 +569,15 @@ describe('Szerver és adatbázis', () => {
     };
 
     try {
-      await expect(
-        importPlaylist(
-          'https://open.spotify.com/playlist/37i9dQZF1DXcBWIGoYBM5M',
-          spotifyUser._id
-        )
-      ).resolves.toMatchObject({
+      const imported = await importPlaylist(
+        'https://open.spotify.com/playlist/37i9dQZF1DXcBWIGoYBM5M',
+        spotifyUser._id
+      );
+      expect(imported).toMatchObject({
         title: 'Spotify kedvencek',
         tracks: [{ videoId: 'abcdefghijk', title: 'Spotify dal official video' }],
       });
+      expect(imported.tracks).toHaveLength(27);
     } finally {
       global.fetch = previousFetch;
       if (previousApiKey === undefined) delete process.env.YOUTUBE_API_KEY;

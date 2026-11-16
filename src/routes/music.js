@@ -114,7 +114,7 @@ router.post('/playlists/import', playlistImportLimit, async (req, res, next) => 
     const playlist = await MusicPlaylist.create({
       owner: req.user._id,
       title,
-      tracks: imported.tracks.slice(0, 250).map((track) => ({
+      tracks: imported.tracks.map((track) => ({
         videoId: track.videoId,
         title: track.title,
         artist: track.artist,
@@ -157,8 +157,6 @@ router.post('/playlists/:playlistId/tracks', async (req, res, next) => {
       owner: req.user._id,
     });
     if (!playlist) return res.status(404).json({ message: 'A műsorlista nem található.' });
-    if (playlist.tracks.length >= 250)
-      return res.status(400).json({ message: 'Egy műsorlistában legfeljebb 250 zeneszám lehet.' });
     playlist.tracks.push({ ...parsed.track, addedBy: req.user._id });
     await playlist.save();
     res.status(201).json({ playlist });

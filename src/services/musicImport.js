@@ -3,7 +3,7 @@ const jwt = require('jsonwebtoken');
 const { User } = require('../models');
 
 const MAX_IMPORTED_TRACKS = 100;
-const SPOTIFY_IMPORT_LIMIT = 25;
+const SPOTIFY_PAGE_SIZE = 50;
 
 function parsePlaylistUrl(value) {
   let url;
@@ -162,19 +162,13 @@ async function spotifyAccessToken(userId) {
 
 async function importSpotifyPlaylist(playlistId, userId) {
   const token = await spotifyAccessToken(userId);
-  const params = new URLSearchParams({ limit: String(SPOTIFY_IMPORT_LIMIT), offset: '0', market: 'HU' });
-  const [data, playlist] = await Promise.all([
-    fetchJson(`https://api.spotify.com/v1/playlists/${encodeURIComponent(playlistId)}/items?${params}`, {
-      headers: { Authorization: `Bearer ${token}` },
-    }, 'Spotify'),
+  const headers = { Authorization: `Bearer ${token}` };
+  const [sourceTracks, playlist] = await Promise.all([
+    collectSpotifyPlaylistItems(playlistId, token),
     fetchJson(`https://api.spotify.com/v1/playlists/${encodeURIComponent(playlistId)}?fields=name`, {
-      headers: { Authorization: `Bearer ${token}` },
+      headers,
     }, 'Spotify'),
   ]);
-  const sourceTracks = (data.items || [])
-    .map((item) => item.item || item.track)
-    .filter((track) => track && !track.is_local && track.name)
-    .slice(0, SPOTIFY_IMPORT_LIMIT);
   const converted = Array(sourceTracks.length);
   let cursor = 0;
   const workers = Array.from({ length: Math.min(3, sourceTracks.length) }, async () => {
@@ -190,13 +184,38 @@ async function importSpotifyPlaylist(playlistId, userId) {
   await Promise.all(workers);
   return {
     title: String(playlist.name || '').slice(0, 80),
-    tracks: converted.filter(Boolean).slice(0, MAX_IMPORTED_TRACKS),
+    tracks: converted.filter(Boolean),
   };
+}
+
+async function collectSpotifyPlaylistItems(playlistId, token) {
+  const params = new URLSearchParams({
+    limit: String(SPOTIFY_PAGE_SIZE),
+    offset: '0',
+    market: 'HU',
+  });
+  const headers = { Authorization: `Bearer ${token}` };
+  const tracks = [];
+  while (true) {
+    const data = await fetchJson(
+      `https://api.spotify.com/v1/playlists/${encodeURIComponent(playlistId)}/items?${params}`,
+      { headers },
+      'Spotify'
+    );
+    const items = data.items || [];
+    const page = items
+      .map((item) => item.item || item.track)
+      .filter((track) => track && !track.is_local && track.name);
+    tracks.push(...page);
+    if (!data.next || !items.length) break;
+    params.set('offset', String(Number(params.get('offset')) + items.length));
+  }
+  return tracks;
 }
 
 function spotifyRedirectUri() {
   if (process.env.SPOTIFY_REDIRECT_URI) return process.env.SPOTIFY_REDIRECT_URI;
-  const appOrigin = process.env.CLIENT_ORIGIN || `http://localhost:${process.env.PORT || 3000}`;
+  const appOrigin = process.env.CLIENT_ORIGIN || `http://127.0.0.1:${process.env.PORT || 3000}`;
   try {
     return new URL('/api/music/spotify/callback', appOrigin).toString();
   } catch (_error) {
