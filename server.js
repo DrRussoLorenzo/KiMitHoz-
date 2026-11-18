@@ -14,6 +14,7 @@ const partyRoutes = require('./src/routes/parties');
 const musicRoutes = require('./src/routes/music');
 const notificationRoutes = require('./src/routes/notifications');
 const adminRoutes = require('./src/routes/admin');
+const translateRoutes = require('./src/routes/translate');
 const bcrypt = require('bcryptjs');
 const { User } = require('./src/models');
 const { archiveExpiredParties } = require('./src/services/partyArchive');
@@ -50,6 +51,7 @@ app.use('/api/parties', partyRoutes);
 app.use('/api/music', musicRoutes);
 app.use('/api/notifications', notificationRoutes);
 app.use('/api/admin', adminRoutes);
+app.use('/api/translate', translateRoutes);
 app.use('/api', (_keres, valasz) =>
   valasz.status(404).json({
     message:

@@ -653,9 +653,8 @@ router.patch('/users/:id', async (req, res, next) => {
     if (req.body.settings && typeof req.body.settings === 'object') {
       if (['light', 'dark'].includes(req.body.settings.theme))
         user.settings.theme = req.body.settings.theme;
-      if (['hu', 'en'].includes(req.body.settings.language))
-        if (['hu', 'en', 'de'].includes(req.body.settings.language))
-          user.settings.language = req.body.settings.language;
+      if (['hu', 'en', 'de'].includes(req.body.settings.language))
+        user.settings.language = req.body.settings.language;
       if (typeof req.body.settings.notifications === 'boolean')
         user.settings.notifications = req.body.settings.notifications;
     }

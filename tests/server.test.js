@@ -280,6 +280,77 @@ describe('Szerver és adatbázis', () => {
     }
   });
 
+  it('hitelesített kérésben lefordítja a kártyák felhasználói szövegét Google Cloud Translationnel', async () => {
+    const user = await User.create({
+      email: 'translation@example.com',
+      username: 'translation_user',
+      nickname: 'Fordítás teszt',
+      passwordHash: 'test-password-hash',
+    });
+    const token = jwt.sign({ sub: user._id.toString() }, process.env.JWT_SECRET);
+    const previousKey = process.env.GOOGLE_TRANSLATE_API_KEY;
+    process.env.GOOGLE_TRANSLATE_API_KEY = 'test-google-translation-key';
+    const googleFetch = jest.spyOn(global, 'fetch').mockResolvedValue({
+      ok: true,
+      json: async () => ({ data: { translations: [{ translatedText: 'A lovely evening' }] } }),
+    });
+
+    try {
+      const response = await request(app)
+        .post('/api/translate')
+        .set('Authorization', `Bearer ${token}`)
+        .send({ target: 'en', texts: ['Egy kellemes este'] })
+        .expect(200);
+
+      expect(response.body.translations).toEqual(['A lovely evening']);
+      expect(googleFetch).toHaveBeenCalledWith(
+        expect.stringContaining('translation.googleapis.com/language/translate/v2'),
+        expect.objectContaining({ method: 'POST' })
+      );
+      expect(JSON.parse(googleFetch.mock.calls[0][1].body)).toEqual({
+        q: ['Egy kellemes este'],
+        target: 'en',
+        format: 'text',
+      });
+    } finally {
+      googleFetch.mockRestore();
+      if (previousKey === undefined) delete process.env.GOOGLE_TRANSLATE_API_KEY;
+      else process.env.GOOGLE_TRANSLATE_API_KEY = previousKey;
+    }
+  });
+
+  it('elutasítja a fordítási kérést auth, célnyelv vagy Google-kulcs hiányában', async () => {
+    const user = await User.create({
+      email: 'translation-validation@example.com',
+      username: 'translation_validation',
+      nickname: 'Fordítás validálás',
+      passwordHash: 'test-password-hash',
+    });
+    const token = jwt.sign({ sub: user._id.toString() }, process.env.JWT_SECRET);
+    const previousKey = process.env.GOOGLE_TRANSLATE_API_KEY;
+    delete process.env.GOOGLE_TRANSLATE_API_KEY;
+
+    try {
+      await request(app)
+        .post('/api/translate')
+        .send({ target: 'en', texts: ['Szia'] })
+        .expect(401);
+      await request(app)
+        .post('/api/translate')
+        .set('Authorization', `Bearer ${token}`)
+        .send({ target: 'fr', texts: ['Szia'] })
+        .expect(400);
+      await request(app)
+        .post('/api/translate')
+        .set('Authorization', `Bearer ${token}`)
+        .send({ target: 'en', texts: ['Egyedi fordítandó szöveg'] })
+        .expect(503);
+    } finally {
+      if (previousKey === undefined) delete process.env.GOOGLE_TRANSLATE_API_KEY;
+      else process.env.GOOGLE_TRANSLATE_API_KEY = previousKey;
+    }
+  });
+
   it('a profil öt témaszínét elmenti és csak érvényes hex színeket fogad el', async () => {
     const user = await User.create({
       email: 'theme-colors@example.com',
@@ -974,6 +1045,32 @@ describe('Szerver és adatbázis', () => {
     expect(logs.body.auditLogs[0].description).toBe(
       'Felhasználó módosítása: Új név · Módosítás: becenév: „Eredeti név” → „Új név”'
     );
+  });
+
+  it('az admin felhasználó-szerkesztője elmenti a német nyelvi beállítást', async () => {
+    const admin = await User.create({
+      email: 'language-admin@example.com',
+      username: 'language_admin',
+      nickname: 'Language admin',
+      passwordHash: 'test-password-hash',
+      role: 'admin',
+    });
+    const target = await User.create({
+      email: 'language-target@example.com',
+      username: 'language_target',
+      nickname: 'Language target',
+      passwordHash: 'test-password-hash',
+    });
+    const token = jwt.sign({ sub: admin._id.toString() }, process.env.JWT_SECRET);
+
+    const response = await request(app)
+      .patch(`/api/admin/users/${target._id}`)
+      .set('Authorization', `Bearer ${token}`)
+      .send({ settings: { language: 'de' } })
+      .expect(200);
+
+    expect(response.body.user.settings.language).toBe('de');
+    expect((await User.findById(target._id)).settings.language).toBe('de');
   });
 
   it('a listamezőknél az elemek nevét írja ki elemszám helyett', async () => {

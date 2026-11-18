@@ -1923,11 +1923,16 @@ body.dark .party-map-popup .maplibregl-popup-content {
   padding: 9px 12px;
   border: 1px solid var(--line);
   border-radius: 4px 13px 13px;
-  background: var(--surface);
+  background: #e7e2f0;
+  color: var(--ink);
 }
 .chat-message.own .chat-message-body {
   border-radius: 13px 4px 13px 13px;
-  background: #eeeaff;
+  background: #d7c7ff;
+  color: #211a35;
+}
+.chat-message.own .chat-message-meta time {
+  color: #54447e;
 }
 .chat-message-highlight .chat-message-body {
   border-color: var(--primary);
@@ -2049,8 +2054,24 @@ body.dark .party-map-popup .maplibregl-popup-content {
   background: var(--field, var(--surface));
   color: var(--ink);
 }
+.party-chat-form textarea::placeholder {
+  color: var(--muted);
+  opacity: 1;
+}
 .party-chat-form button {
   min-height: 44px;
+}
+body.dark .chat-message.own .chat-message-body {
+  border-color: #8a6cff;
+  background: #6746e8;
+  color: #fff;
+}
+body.dark .chat-message:not(.own) .chat-message-body {
+  background: #191522;
+  color: var(--ink);
+}
+body.dark .chat-message.own .chat-message-meta time {
+  color: #f3edff;
 }
 .sr-only {
   position: absolute;

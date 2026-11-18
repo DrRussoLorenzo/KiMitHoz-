@@ -1,7 +1,7 @@
 {
   "name": "kimithoz-v2",
   "version": "1.0.0",
-  "description": "Kimihez - közösségi partyszervező alkalmazás MongoDB-vel",
+  "description": "Kimithoz? - közösségi partyszervező alkalmazás MongoDB-vel",
   "main": "server.js",
   "scripts": {
     "start": "node server.js",
