@@ -874,6 +874,8 @@ body.dark .file-upload-control > i:first-child {
 .top-actions {
   display: flex;
   align-items: center;
+  justify-content: flex-end;
+  margin-left: auto;
   gap: 11px;
 }
 .top-social-link {
@@ -2311,6 +2313,45 @@ body.dark .chat-message.own .chat-message-meta time {
   display: grid;
   gap: 8px;
 }
+.theme-dropdown {
+  grid-column: 1 / -1;
+  border: 1px solid var(--line);
+  border-radius: 10px;
+  padding: 10px 12px;
+}
+.theme-dropdown > summary {
+  cursor: pointer;
+  font-size: 13px;
+  font-weight: 700;
+}
+.theme-dropdown[open] > summary {
+  margin-bottom: 12px;
+}
+.custom-theme-slots {
+  display: grid;
+  gap: 10px;
+}
+.custom-theme-slot {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  padding: 10px;
+  border: 1px solid var(--line);
+  border-radius: 9px;
+}
+.custom-theme-slot > div:first-child {
+  display: grid;
+  gap: 4px;
+}
+.custom-theme-slot small {
+  color: var(--muted);
+}
+.custom-theme-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 7px;
+}
 .theme-preset-group > strong {
   font-size: 12px;
 }
@@ -2491,6 +2532,150 @@ body.dark .auth-form-wrap .terms a {
 }
 body.dark .auth-footer {
   color: var(--muted);
+}
+body.contrast {
+  color-scheme: light;
+  --ink: #000000;
+  --muted: #202020;
+  --paper: #ffffff;
+  --surface: #ffffff;
+  --menu: #ffeb00;
+  --line: #000000;
+  --accent: #ffeb00;
+  --accent-strong: #000000;
+  --primary: #000000;
+  --primary-hover: #292929;
+  --lav: #ffeb00;
+  --shadow: 0 0 0 2px #000000;
+  background: #ffffff;
+  color: #000000;
+}
+body.contrast .sidebar,
+body.contrast .topbar,
+body.contrast .surface-card,
+body.contrast .party-card,
+body.contrast .modal,
+body.contrast .theme-preset,
+body.contrast .sidebar-tip {
+  background: #ffffff;
+  color: #000000;
+  border-color: #000000;
+}
+body.contrast .nav-link,
+body.contrast .nav-link > span,
+body.contrast .sidebar-title,
+body.contrast .side-label,
+body.contrast .sidebar-tip p,
+body.contrast .user-chip small,
+body.contrast .more,
+body.contrast .muted,
+body.contrast .party-meta,
+body.contrast .party-bottom small,
+body.contrast .greeting-kicker {
+  color: #202020;
+}
+body.contrast .nav-link.active,
+body.contrast .nav-link:hover,
+body.contrast .theme-preset:hover,
+body.contrast .theme-preset:focus-visible {
+  background: #ffeb00;
+  color: #000000;
+}
+body.contrast button,
+body.contrast a,
+body.contrast input,
+body.contrast textarea,
+body.contrast select,
+body.contrast .field input,
+body.contrast .field textarea,
+body.contrast .field select,
+body.contrast .search-input {
+  border-color: #000000;
+  color: #000000;
+}
+body.contrast .button-dark,
+body.contrast .button-lime,
+body.contrast .top-create,
+body.contrast .nav-count {
+  background: #ffeb00;
+  color: #000000;
+  border: 2px solid #000000;
+}
+body.contrast :focus-visible {
+  outline: 3px solid #000000;
+  outline-offset: 3px;
+}
+body.contrast-dark {
+  color-scheme: dark;
+  --ink: #ffffff;
+  --muted: #f0f0f0;
+  --paper: #000000;
+  --surface: #101010;
+  --menu: #242424;
+  --line: #ffffff;
+  --accent: #ffeb00;
+  --accent-strong: #ffeb00;
+  --primary: #ffeb00;
+  --primary-hover: #fff36b;
+  --lav: #202020;
+  --shadow: 0 0 0 2px #ffffff;
+  background: #000000;
+  color: #ffffff;
+}
+body.contrast-dark .sidebar,
+body.contrast-dark .topbar,
+body.contrast-dark .surface-card,
+body.contrast-dark .party-card,
+body.contrast-dark .modal,
+body.contrast-dark .sidebar-tip,
+body.contrast-dark .theme-dropdown,
+body.contrast-dark .custom-theme-slot {
+  background: #101010;
+  color: #ffffff;
+  border-color: #ffffff;
+}
+body.contrast-dark .nav-link,
+body.contrast-dark .nav-link > span,
+body.contrast-dark .sidebar-title,
+body.contrast-dark .side-label,
+body.contrast-dark .sidebar-tip p,
+body.contrast-dark .user-chip small,
+body.contrast-dark .more,
+body.contrast-dark .muted,
+body.contrast-dark .party-meta,
+body.contrast-dark .party-bottom small,
+body.contrast-dark .greeting-kicker {
+  color: #f0f0f0;
+}
+body.contrast-dark .nav-link.active,
+body.contrast-dark .nav-link:hover {
+  background: #ffeb00;
+  color: #000000;
+}
+body.contrast-dark input,
+body.contrast-dark textarea,
+body.contrast-dark select,
+body.contrast-dark .field input,
+body.contrast-dark .field textarea,
+body.contrast-dark .field select,
+body.contrast-dark .search-input,
+body.contrast-dark .icon-button,
+body.contrast-dark .theme-preset {
+  background: #000000;
+  color: #ffffff;
+  border-color: #ffffff;
+}
+body.contrast-dark .button-dark,
+body.contrast-dark .button-lime,
+body.contrast-dark .top-create,
+body.contrast-dark .nav-count {
+  background: #ffeb00;
+  color: #000000;
+  border: 2px solid #ffffff;
+}
+body.contrast-dark :focus-visible {
+  outline: 3px solid #ffeb00;
+  outline-offset: 3px;
 }
 button:focus-visible,
 a:focus-visible {

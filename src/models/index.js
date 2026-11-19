@@ -43,7 +43,11 @@ const felhasznaloAdatSchema = new mongoose.Schema(
     friends: [{ type: mongoose.Schema.Types.ObjectId, ref: 'User' }],
     friendRequests: [{ type: mongoose.Schema.Types.ObjectId, ref: 'User' }],
     settings: {
-      theme: { type: String, enum: ['light', 'dark'], default: 'light' },
+      theme: {
+        type: String,
+        enum: ['light', 'dark', 'contrast', 'contrast-dark'],
+        default: 'light',
+      },
       language: { type: String, enum: ['hu', 'en', 'de'], default: 'hu' },
       notifications: { type: Boolean, default: true },
       colors: {
@@ -52,6 +56,21 @@ const felhasznaloAdatSchema = new mongoose.Schema(
         background: { type: String, match: /^#[0-9a-fA-F]{6}$/ },
         selection: { type: String, match: /^#[0-9a-fA-F]{6}$/ },
         field: { type: String, match: /^#[0-9a-fA-F]{6}$/ },
+      },
+      customThemes: {
+        type: [
+          {
+            theme: { type: String, enum: ['light', 'dark', 'contrast', 'contrast-dark'] },
+            saved: { type: Boolean, default: false },
+            primary: { type: String, match: /^#[0-9a-fA-F]{6}$/ },
+            accent: { type: String, match: /^#[0-9a-fA-F]{6}$/ },
+            background: { type: String, match: /^#[0-9a-fA-F]{6}$/ },
+            selection: { type: String, match: /^#[0-9a-fA-F]{6}$/ },
+            field: { type: String, match: /^#[0-9a-fA-F]{6}$/ },
+          },
+        ],
+        default: [],
+        validate: (themes) => themes.length <= 2,
       },
     },
   },

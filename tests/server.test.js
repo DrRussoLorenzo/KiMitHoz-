@@ -399,19 +399,46 @@ describe('Szerver és adatbázis', () => {
       selection: '#d9e8ff',
       field: '#f0e2d4',
     };
+    const customThemes = [
+      { theme: 'light', saved: true, ...colors },
+      {
+        theme: 'contrast-dark',
+        saved: true,
+        primary: '#ffeb00',
+        accent: '#ffffff',
+        background: '#000000',
+        selection: '#202020',
+        field: '#101010',
+      },
+    ];
 
     const response = await request(app)
       .patch('/api/users/me')
       .set('Authorization', `Bearer ${token}`)
-      .send({ settings: { colors } })
+      .send({ settings: { theme: 'contrast', colors, customThemes } })
       .expect(200);
 
+    expect(response.body.user.settings.theme).toBe('contrast');
     expect(response.body.user.settings.colors).toMatchObject(colors);
+    expect(response.body.user.settings.customThemes).toHaveLength(2);
+    expect(response.body.user.settings.customThemes[1]).toMatchObject(customThemes[1]);
+    expect((await User.findById(user._id)).settings.theme).toBe('contrast');
     expect((await User.findById(user._id)).settings.colors).toMatchObject(colors);
     await request(app)
       .patch('/api/users/me')
       .set('Authorization', `Bearer ${token}`)
+      .send({ settings: { theme: 'contrast-dark' } })
+      .expect(200);
+    expect((await User.findById(user._id)).settings.theme).toBe('contrast-dark');
+    await request(app)
+      .patch('/api/users/me')
+      .set('Authorization', `Bearer ${token}`)
       .send({ settings: { colors: { primary: 'red' } } })
+      .expect(400);
+    await request(app)
+      .patch('/api/users/me')
+      .set('Authorization', `Bearer ${token}`)
+      .send({ settings: { customThemes: [...customThemes, customThemes[0]] } })
       .expect(400);
   });
 

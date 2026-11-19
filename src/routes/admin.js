@@ -651,7 +651,7 @@ router.patch('/users/:id', async (req, res, next) => {
       user.passwordHash = await bcrypt.hash(req.body.password, 12);
     }
     if (req.body.settings && typeof req.body.settings === 'object') {
-      if (['light', 'dark'].includes(req.body.settings.theme))
+      if (['light', 'dark', 'contrast', 'contrast-dark'].includes(req.body.settings.theme))
         user.settings.theme = req.body.settings.theme;
       if (['hu', 'en', 'de'].includes(req.body.settings.language))
         user.settings.language = req.body.settings.language;

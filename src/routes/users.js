@@ -207,7 +207,7 @@ router.patch('/me', async (keres, valasz, folytatas) => {
       keres.user[mezo] = ertek;
     }
     if (keres.body.settings) {
-      if (['light', 'dark'].includes(keres.body.settings.theme))
+      if (['light', 'dark', 'contrast', 'contrast-dark'].includes(keres.body.settings.theme))
         keres.user.settings.theme = keres.body.settings.theme;
       if (['hu', 'en', 'de'].includes(keres.body.settings.language))
         keres.user.settings.language = keres.body.settings.language;
@@ -227,6 +227,22 @@ router.patch('/me', async (keres, valasz, folytatas) => {
               .json({ message: 'A témaszínek érvényes, 6 jegyű hexadecimális színek legyenek.' });
           keres.user.settings.colors[kulcs] = szin;
         }
+      }
+      if (keres.body.settings.customThemes !== undefined) {
+        const customThemes = keres.body.settings.customThemes;
+        const colorKeys = ['primary', 'accent', 'background', 'selection', 'field'];
+        if (!Array.isArray(customThemes) || customThemes.length > 2)
+          return valasz.status(400).json({ message: 'Legfeljebb két saját témát menthetsz el.' });
+        for (const savedTheme of customThemes) {
+          if (
+            !savedTheme ||
+            !['light', 'dark', 'contrast', 'contrast-dark'].includes(savedTheme.theme) ||
+            typeof savedTheme.saved !== 'boolean' ||
+            colorKeys.some((key) => !/^#[0-9a-fA-F]{6}$/.test(savedTheme[key] || ''))
+          )
+            return valasz.status(400).json({ message: 'A saját téma adatai érvénytelenek.' });
+        }
+        keres.user.settings.customThemes = customThemes;
       }
     }
     await keres.user.save();

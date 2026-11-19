@@ -204,11 +204,16 @@ function logout(message = true) {
   if (message) toast('Sikeresen kijelentkeztél.');
 }
 function syncThemeToggle(theme) {
-  const dark = theme === 'dark';
-  $('#theme-toggle').innerHTML = `<i class="fa-regular ${dark ? 'fa-sun' : 'fa-moon'}"></i>`;
+  const dark = theme === 'dark' || theme === 'contrast-dark';
+  const contrast = theme === 'contrast' || theme === 'contrast-dark';
+  $('#theme-toggle').innerHTML = `<i class="fa-solid ${contrast ? 'fa-circle-half-stroke' : dark ? 'fa-sun' : 'fa-moon'}"></i>`;
   $('#theme-toggle').setAttribute(
     'aria-label',
-    dark ? 'Világos mód bekapcsolása' : 'Sötét mód bekapcsolása'
+    contrast
+      ? 'Világos mód bekapcsolása'
+      : dark
+        ? 'Kontraszt téma bekapcsolása'
+        : 'Sötét mód bekapcsolása'
   );
 }
 const defaultThemeColors = {
@@ -225,6 +230,20 @@ const defaultThemeColors = {
     background: '#14111f',
     selection: '#332b4b',
     field: '#2b253b',
+  },
+  contrast: {
+    primary: '#000000',
+    accent: '#ffeb00',
+    background: '#ffffff',
+    selection: '#ffeb00',
+    field: '#ffffff',
+  },
+  'contrast-dark': {
+    primary: '#ffeb00',
+    accent: '#ffffff',
+    background: '#000000',
+    selection: '#202020',
+    field: '#101010',
   },
 };
 const themePresets = {
@@ -312,12 +331,37 @@ const themePresets = {
       field: '#35202a',
     },
   ],
+  contrast: [
+    {
+      name: 'Kontraszt',
+      primary: '#000000',
+      accent: '#ffeb00',
+      background: '#ffffff',
+      selection: '#ffeb00',
+      field: '#ffffff',
+    },
+  ],
+  'contrast-dark': [
+    {
+      name: 'Kontraszt – fekete háttér',
+      primary: '#ffeb00',
+      accent: '#ffffff',
+      background: '#000000',
+      selection: '#202020',
+      field: '#101010',
+    },
+  ],
 };
 function colorsForThemeSwitch(theme, currentTheme, colors) {
-  const presetIndex = themePresets[currentTheme].findIndex(
+  if (theme === 'contrast' || theme === 'contrast-dark')
+    return { ...defaultThemeColors[theme] };
+  if (currentTheme === 'contrast' || currentTheme === 'contrast-dark')
+    return { ...defaultThemeColors[theme] };
+  const presetIndex = (themePresets[currentTheme] || []).findIndex(
     (preset) => preset.primary.toLowerCase() === colors.primary?.toLowerCase()
   );
-  if (presetIndex !== -1) return themePresets[theme][presetIndex];
+  if (presetIndex !== -1 && themePresets[theme]?.[presetIndex])
+    return themePresets[theme][presetIndex];
   return {
     ...defaultThemeColors[theme],
     primary: colors.primary || defaultThemeColors[theme].primary,
@@ -326,13 +370,15 @@ function colorsForThemeSwitch(theme, currentTheme, colors) {
 }
 // A felhasználó által választott színeket CSS-változóként alkalmazza az egész oldalon.
 function applyThemeColors(themeOverride, colorOverrides = {}) {
-  const theme = themeOverride || (allapot.user?.settings?.theme === 'dark' ? 'dark' : 'light');
+  const theme = themeOverride || allapot.user?.settings?.theme || 'light';
   const colors = {
     ...defaultThemeColors[theme],
     ...(allapot.user?.settings?.colors || {}),
     ...colorOverrides,
   };
-  document.body.classList.toggle('dark', theme === 'dark');
+  document.body.classList.toggle('dark', theme === 'dark' || theme === 'contrast-dark');
+  document.body.classList.toggle('contrast', theme === 'contrast');
+  document.body.classList.toggle('contrast-dark', theme === 'contrast-dark');
   document.body.style.setProperty('--primary', colors.primary);
   document.body.style.setProperty(
     '--primary-hover',
@@ -1118,19 +1164,22 @@ function profilePage() {
     ? `<button type="button" class="profile-image-preview" data-action="preview-profile-image" data-image="${esc(allapot.user.avatar)}" aria-label="Profilkép megtekintése teljes méretben">${avatarMarkup(allapot.user, 'avatar profile-avatar')}<span>Kép megtekintése</span></button>`
     : avatarMarkup(allapot.user, 'avatar profile-avatar');
   const fallbackColors =
-    defaultThemeColors[allapot.user.settings?.theme === 'dark' ? 'dark' : 'light'];
+    defaultThemeColors[allapot.user.settings?.theme] || defaultThemeColors.light;
   const colors = { ...fallbackColors, ...(allapot.user.settings?.colors || {}) };
-  const presetButtons = Object.entries(themePresets)
-    .map(
-      ([mode, presets]) =>
-        `<div class="theme-preset-group"><strong>${mode === 'dark' ? 'Sötét téma' : 'Világos téma'}</strong><div class="theme-preset-list">${presets
-          .map(
-            (preset) =>
-              `<button type="button" class="theme-preset" data-theme-preset="${mode}" data-colors="${esc(JSON.stringify(preset))}" aria-label="${preset.name}"><span class="theme-preset-swatch" style="--preset-primary:${preset.primary};--preset-accent:${preset.accent};--preset-background:${preset.background};--preset-selection:${preset.selection};--preset-field:${preset.field}"></span><span>${preset.name}</span></button>`
-          )
-          .join('')}</div></div>`
-    )
-    .join('');
+  const savedThemes = allapot.user.settings?.customThemes || [];
+  const presetMarkup = (theme, presets) =>
+    `<div class="theme-preset-list">${presets
+      .map(
+        (preset) =>
+          `<button type="button" class="theme-preset" data-theme-preset="${theme}" data-colors="${esc(JSON.stringify(preset))}" aria-label="${esc(preset.name)}"><span class="theme-preset-swatch" style="--preset-primary:${preset.primary};--preset-accent:${preset.accent};--preset-background:${preset.background};--preset-selection:${preset.selection};--preset-field:${preset.field}"></span><span>${esc(preset.name)}</span></button>`
+      )
+      .join('')}</div>`;
+  const presetButtons = `<details class="theme-dropdown"><summary>Világos témák</summary>${presetMarkup('light', themePresets.light)}${presetMarkup('contrast', themePresets.contrast)}</details><details class="theme-dropdown"><summary>Sötét / fekete témák</summary>${presetMarkup('dark', themePresets.dark)}${presetMarkup('contrast-dark', themePresets['contrast-dark'])}</details><details class="theme-dropdown"><summary>Saját témák</summary><div class="custom-theme-slots">${[0, 1]
+    .map((slot) => {
+      const saved = savedThemes[slot]?.saved ? savedThemes[slot] : null;
+      return `<div class="custom-theme-slot"><div><strong>Saját téma ${slot + 1}</strong><small>${saved ? 'Mentett téma elérhető' : 'Még nincs elmentve'}</small></div><div class="custom-theme-actions"><button type="button" class="button button-outline button-small" data-action="save-theme-slot" data-slot="${slot}">Mentés ide</button><button type="button" class="button button-outline button-small" data-action="load-theme-slot" data-slot="${slot}" ${saved ? '' : 'disabled'}>Betöltés</button></div></div>`;
+    })
+    .join('')}</div></details>`;
   return `${heading('RÓLAD SZÓL', 'Profilom', 'Állítsd be a profilodat.')}<section class="surface-card"><form id="profile-form"><div class="profile-heading-row"><div id="profile-avatar-preview">${avatar}</div>${profileAgeMarkup(allapot.user)}</div><label class="field file-upload-field">Profilkép feltöltése<span class="file-upload-control"><i class="fa-regular fa-image" aria-hidden="true"></i><span class="file-upload-copy"><strong>Válassz egy képet</strong><small class="file-upload-name">JPG, PNG vagy WebP · legfeljebb 5 MB</small></span><i class="fa-solid fa-arrow-up-from-bracket file-upload-arrow" aria-hidden="true"></i></span><input id="profile-avatar-upload" class="file-upload-input" type="file" accept="image/jpeg,image/png,image/webp" aria-label="Profilkép feltöltése"></label><label class="field">Vagy profilkép URL-je<input name="avatar" type="url" maxlength="2048" value="${esc(allapot.user.avatar || '')}" placeholder="https://pelda.hu/profilkep.jpg"><small>URL megadása esetén a Mentés gombbal módosíthatod a képet.</small></label><label class="field">Becenév<input name="nickname" value="${esc(allapot.user.nickname)}" required></label><label class="field">Bemutatkozás<textarea name="bio">${esc(allapot.user.bio || '')}</textarea></label><label class="setting-row"><strong>Sötét megjelenés</strong><input class="setting-switch" type="checkbox" name="theme" aria-label="Sötét megjelenés" ${allapot.user.settings?.theme === 'dark' ? 'checked' : ''}></label><fieldset class="theme-color-settings"><legend>Téma színei</legend><p class="muted">Válassz egy alap palettát, vagy állítsd be külön az öt színt.</p>${presetButtons}<label>Gombok színe<input type="color" name="primaryColor" value="${colors.primary}" aria-label="Gombok színe"></label><label>Kijelölő szín (körvonal)<input type="color" name="accentColor" value="${colors.accent}" aria-label="Kijelölő szín (körvonal)"></label><label>Háttérszín<input type="color" name="backgroundColor" value="${colors.background}" aria-label="Háttérszín"></label><label>Menük színe<input type="color" name="selectionColor" value="${colors.selection}" aria-label="Menük színe"></label><label>Mezők színe<input type="color" name="fieldColor" value="${colors.field || colors.selection}" aria-label="Mezők színe"></label></fieldset><div class="setting-row"><strong>Nyelv</strong><select name="language" aria-label="Felület nyelve"><option value="hu" ${allapot.user.settings?.language === 'hu' || !allapot.user.settings?.language ? 'selected' : ''}>Magyar</option><option value="en" ${allapot.user.settings?.language === 'en' ? 'selected' : ''}>English</option><option value="de" ${allapot.user.settings?.language === 'de' ? 'selected' : ''}>Deutsch</option></select></div><label class="setting-row"><strong>Értesítések</strong><input class="setting-switch" type="checkbox" name="notifications" aria-label="Értesítések" ${allapot.user.settings?.notifications !== false ? 'checked' : ''}></label><button class="button button-dark" type="submit">Mentés</button><button class="button button-outline" type="button" data-action="logout">Kijelentkezés</button></form></section>`;
 }
 // Teljes méretben nyitja meg a profilképet vagy a feltöltött képet.
@@ -1405,6 +1454,10 @@ async function render() {
                     : renderParty(allapot.activeParty);
 
   $('#page-content').innerHTML = content;
+  if (allapot.view === 'profile') {
+    const form = $('#profile-form');
+    if (form) form.dataset.themeMode = allapot.user.settings?.theme || 'light';
+  }
   enhanceNumberInputs($('#page-content'));
   if ($('#youtube-player')) initializeYouTubePlayer();
   if (allapot.view === 'archive' || allapot.view === 'party-detail') await loadGalleryImages();
@@ -1454,13 +1507,15 @@ document.addEventListener('click', async (event) => {
     if (!form) return;
     const colors = JSON.parse(preset.dataset.colors);
     const theme = preset.dataset.themePreset;
-    form.elements.theme.checked = theme === 'dark';
+    form.dataset.themeMode = theme;
+    form.elements.theme.checked = theme === 'dark' || theme === 'contrast-dark';
     form.elements.primaryColor.value = colors.primary;
     form.elements.accentColor.value = colors.accent;
     form.elements.backgroundColor.value = colors.background;
     form.elements.selectionColor.value = colors.selection;
     form.elements.fieldColor.value = colors.field || colors.selection;
     applyThemeColors(theme, colors);
+    syncThemeToggle(theme);
     applyMapTheme();
     return;
   }
@@ -1492,6 +1547,57 @@ document.addEventListener('click', async (event) => {
   if (!button) return;
   const action = button.dataset.action;
   try {
+    if (action === 'save-theme-slot' || action === 'load-theme-slot') {
+      const form = button.closest('#profile-form');
+      if (!form) return;
+      const slot = Number(button.dataset.slot);
+      if (!Number.isInteger(slot) || slot < 0 || slot > 1) return;
+      const customThemes = [...(allapot.user.settings?.customThemes || [])];
+      if (action === 'save-theme-slot') {
+        const colors = {
+          primary: form.elements.primaryColor.value,
+          accent: form.elements.accentColor.value,
+          background: form.elements.backgroundColor.value,
+          selection: form.elements.selectionColor.value,
+          field: form.elements.fieldColor.value,
+        };
+        while (customThemes.length <= slot)
+          customThemes.push({ theme: 'light', saved: false, ...defaultThemeColors.light });
+        customThemes[slot] = {
+          theme: form.dataset.themeMode || allapot.user.settings?.theme || 'light',
+          saved: true,
+          ...colors,
+        };
+        const { user } = await api('/users/me', {
+          method: 'PATCH',
+          body: JSON.stringify({ settings: { customThemes } }),
+        });
+        allapot.user = { ...user, id: user.id || user._id };
+        await render();
+        toast(`A saját téma elmentve (${slot + 1}. hely).`);
+        return;
+      }
+      const saved = customThemes[slot];
+      if (!saved?.saved) return;
+      const colors = {
+        primary: saved.primary,
+        accent: saved.accent,
+        background: saved.background,
+        selection: saved.selection,
+        field: saved.field,
+      };
+      const { user } = await api('/users/me', {
+        method: 'PATCH',
+        body: JSON.stringify({ settings: { theme: saved.theme, colors } }),
+      });
+      allapot.user = { ...user, id: user.id || user._id };
+      showApp();
+      await render();
+      syncThemeToggle(saved.theme);
+      applyMapTheme();
+      toast(`Saját téma betöltve (${slot + 1}. hely).`);
+      return;
+    }
     if (action === 'step-number') {
       const input = button.parentElement.querySelector('input[type="number"]');
       const step = input.step === 'any' ? 1 : Number(input.step) || 1;
@@ -2116,7 +2222,7 @@ document.addEventListener('submit', async (event) => {
           avatar: d.avatar.trim(),
           bio: d.bio,
           settings: {
-            theme: form.elements.theme.checked ? 'dark' : 'light',
+            theme: form.dataset.themeMode || (form.elements.theme.checked ? 'dark' : 'light'),
             language: d.language,
             notifications: form.elements.notifications.checked,
             colors: {
@@ -2167,7 +2273,10 @@ document.addEventListener('change', (event) => {
     event.target.matches('input[type="color"], input[name="theme"]')
   ) {
     const form = event.target.form;
-    const theme = form.elements.theme.checked ? 'dark' : 'light';
+    const currentTheme = form.dataset.themeMode || allapot.user.settings?.theme || 'light';
+    const theme = event.target.name === 'theme'
+      ? form.elements.theme.checked ? 'dark' : 'light'
+      : currentTheme;
     const colors = {
       primary: form.elements.primaryColor.value,
       accent: form.elements.accentColor.value,
@@ -2176,8 +2285,8 @@ document.addEventListener('change', (event) => {
       field: form.elements.fieldColor.value,
     };
     if (event.target.name === 'theme') {
-      const currentTheme = theme === 'dark' ? 'light' : 'dark';
       Object.assign(colors, colorsForThemeSwitch(theme, currentTheme, colors));
+      form.dataset.themeMode = theme;
       form.elements.primaryColor.value = colors.primary;
       form.elements.accentColor.value = colors.accent;
       form.elements.backgroundColor.value = colors.background;
@@ -2185,6 +2294,7 @@ document.addEventListener('change', (event) => {
       form.elements.fieldColor.value = colors.field;
     }
     applyThemeColors(theme, colors);
+    syncThemeToggle(theme);
     applyMapTheme();
     return;
   }
@@ -2293,8 +2403,9 @@ $$('.auth-tabs button').forEach((button) =>
 );
 $('#theme-toggle').addEventListener('click', async () => {
   try {
-    const currentTheme = allapot.user.settings?.theme === 'dark' ? 'dark' : 'light';
-    const theme = currentTheme === 'dark' ? 'light' : 'dark';
+    const themeOrder = ['light', 'dark', 'contrast', 'contrast-dark'];
+    const currentTheme = allapot.user.settings?.theme || 'light';
+    const theme = themeOrder[(themeOrder.indexOf(currentTheme) + 1) % themeOrder.length];
     const colors = colorsForThemeSwitch(
       theme,
       currentTheme,
@@ -2323,7 +2434,7 @@ $('#theme-toggle').addEventListener('click', async () => {
 });
 $('#create-party-top').addEventListener('click', () => partyModal());
 $('#invite-top').addEventListener('click', async () => {
-  const registrationUrl = `${location.origin}/?register=1`;
+  const registrationUrl = 'https://kimithoz.onrender.com/';
   try {
     if (navigator.clipboard?.writeText) await navigator.clipboard.writeText(registrationUrl);
     else throw new Error('A vágólap API nem érhető el.');
@@ -2345,7 +2456,6 @@ $('#invite-top').addEventListener('click', async () => {
       !copied
     );
   }
-  location.assign(registrationUrl);
 });
 $('#sidebar-profile').addEventListener('click', async () => navigateView('profile'));
 $('#mobile-menu').addEventListener('click', () => $('.sidebar').classList.toggle('open'));
