@@ -1,7 +1,7 @@
 const router = require('express').Router();
 const multer = require('multer');
 const auth = require('../middleware/auth');
-const { User, Notification } = require('../models');
+const { User, Party, Notification } = require('../models');
 const { uploadImage } = require('../services/cloudinary');
 
 router.use(auth);
@@ -73,16 +73,43 @@ router.get('/search', async (keres, valasz, folytatas) => {
   }
 });
 
-// Csak az aktuális felhasználó ismerősei profilját adja vissza.
+// Ismerősök vagy közös buli résztvevőinek korlátozott nyilvános profilját adja vissza.
 router.get('/:id', async (keres, valasz, folytatas) => {
   try {
-    if (!keres.user.friends.some((azonosito) => azonosito.equals(keres.params.id)))
-      return valasz.status(404).json({ message: 'A profil nem található.' });
     const felhasznalo = await User.findById(keres.params.id).select(
-      'username nickname age avatar bio'
+      'username nickname age avatar bio friendRequests'
     );
     if (!felhasznalo) return valasz.status(404).json({ message: 'A profil nem található.' });
-    valasz.json({ user: nyilvanosAdatlap(felhasznalo) });
+    const aktualisId = keres.user._id;
+    const baratok = keres.user.friends.some((azonosito) => azonosito.equals(felhasznalo._id));
+    const kozosBuli = await Party.exists({
+      $and: [
+        {
+          $or: [
+            { host: aktualisId },
+            { members: { $elemMatch: { user: aktualisId, status: 'going' } } },
+          ],
+        },
+        {
+          $or: [
+            { host: felhasznalo._id },
+            { members: { $elemMatch: { user: felhasznalo._id, status: 'going' } } },
+          ],
+        },
+      ],
+    });
+    if (!baratok && !kozosBuli)
+      return valasz.status(404).json({ message: 'A profil nem található.' });
+    valasz.json({
+      user: {
+        ...nyilvanosAdatlap(felhasznalo),
+        isFriend: baratok,
+        requestSent: felhasznalo.friendRequests.some((azonosito) => azonosito.equals(aktualisId)),
+        requestReceived: keres.user.friendRequests.some((azonosito) =>
+          azonosito.equals(felhasznalo._id)
+        ),
+      },
+    });
   } catch (hiba) {
     folytatas(hiba);
   }

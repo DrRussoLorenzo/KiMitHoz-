@@ -272,12 +272,17 @@ router.get('/:id/chat/messages', async (req, res, next) => {
           .sort({ createdAt: -1, _id: -1 })
           .limit(49)
           .populate('sender', 'nickname avatar')
+          .populate('mentionedUsers', 'username')
           .lean(),
-        PartyMessage.findById(target._id).populate('sender', 'nickname avatar').lean(),
+        PartyMessage.findById(target._id)
+          .populate('sender', 'nickname avatar')
+          .populate('mentionedUsers', 'username')
+          .lean(),
         PartyMessage.find(afterFilter)
           .sort({ createdAt: 1, _id: 1 })
           .limit(50)
           .populate('sender', 'nickname avatar')
+          .populate('mentionedUsers', 'username')
           .lean(),
       ]);
       messages = [...before.reverse(), targetMessage, ...after];
@@ -286,6 +291,7 @@ router.get('/:id/chat/messages', async (req, res, next) => {
         .sort({ createdAt: -1, _id: -1 })
         .limit(100)
         .populate('sender', 'nickname avatar')
+        .populate('mentionedUsers', 'username')
         .lean();
       messages.reverse();
     }

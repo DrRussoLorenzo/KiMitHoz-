@@ -61,6 +61,31 @@ const esc = (v = '') =>
   );
 const userContentMarkup = (value) =>
   `<span data-user-content>${esc(value ?? '')}</span>`;
+function chatMessageMarkup(message) {
+  const text = String(message.text ?? '');
+  const users = new Map(
+    (message.mentionedUsers || [])
+      .filter((user) => user?._id && user.username)
+      .map((user) => [user.username.toLowerCase(), user])
+  );
+  if (!users.size) return userContentMarkup(text);
+  const usernames = [...users.keys()]
+    .sort((a, b) => b.length - a.length)
+    .map((username) => username.replace(/[.*+?^${}()|[\]\\]/g, '\\$&'))
+    .join('|');
+  const pattern = new RegExp(`(^|[^\\w])@(${usernames})(?![\\w])`, 'gi');
+  let html = '';
+  let lastIndex = 0;
+  for (const match of text.matchAll(pattern)) {
+    const [whole, prefix, username] = match;
+    const user = users.get(username.toLowerCase());
+    const start = match.index;
+    html += esc(text.slice(lastIndex, start)) + esc(prefix);
+    html += `<button type="button" class="chat-mention-link" data-profile-user="${esc(user._id)}" aria-label="@${esc(username)} profiljának megnyitása">@${esc(username)}</button>`;
+    lastIndex = start + whole.length;
+  }
+  return `<span data-user-content>${html}${esc(text.slice(lastIndex))}</span>`;
+}
 const emojiOnly =
   /^(?:(?:\p{Extended_Pictographic}(?:\uFE0F|\p{Emoji_Modifier})?(?:\u200D\p{Extended_Pictographic}(?:\uFE0F|\p{Emoji_Modifier})?)*)|(?:\p{Regional_Indicator}{2})|(?:[0-9#*]\uFE0F?\u20E3))$/u;
 function isImageUrl(value) {
@@ -1018,7 +1043,14 @@ function viewedProfilePage() {
   const avatar = profile.avatar
     ? `<button type="button" class="profile-image-preview" data-action="preview-profile-image" data-image="${esc(profile.avatar)}" aria-label="Profilkép megtekintése teljes méretben">${avatarMarkup(profile, 'avatar profile-avatar')}<span>Kép megtekintése</span></button>`
     : avatarMarkup(profile, 'avatar profile-avatar');
-  return `${heading('ISMERŐS PROFILJA', esc(profile.nickname), `@${esc(profile.username)}`, '<button class="button button-outline button-small" data-view="friends">← Vissza a barátokhoz</button>')}<section class="surface-card public-profile-card"><div class="profile-heading-row">${avatar}${profileAgeMarkup(profile)}</div><h2>${esc(profile.nickname)}</h2><p class="muted">@${esc(profile.username)}</p><p class="profile-bio">${profile.bio ? userContentMarkup(profile.bio) : 'Ehhez a profilhoz még nincs bemutatkozás.'}</p></section>`;
+  const friendAction = profile.isFriend
+    ? '<span class="muted">Már barátok vagytok.</span>'
+    : profile.requestReceived
+      ? `<button class="button button-lime button-small" data-action="accept-friend" data-user="${esc(profile.id)}">Barátfelkérés elfogadása</button>`
+      : profile.requestSent
+        ? '<button class="button button-outline button-small" disabled>Felkérés elküldve</button>'
+        : `<button class="button button-lime button-small" data-action="send-friend" data-user="${esc(profile.id)}">＋ Barátnak jelölöm</button>`;
+  return `${heading('FELHASZNÁLÓI PROFIL', esc(profile.nickname), `@${esc(profile.username)}`, '<button class="button button-outline button-small" data-view="friends">← Vissza a barátokhoz</button>')}<section class="surface-card public-profile-card"><div class="profile-heading-row">${avatar}${profileAgeMarkup(profile)}</div><h2>${esc(profile.nickname)}</h2><p class="muted">@${esc(profile.username)}</p><p class="profile-bio">${profile.bio ? userContentMarkup(profile.bio) : 'Ehhez a profilhoz még nincs bemutatkozás.'}</p><div class="profile-friend-action">${friendAction}</div></section>`;
 }
 // Értesítési sorokat készít, és a még megválaszolható kérésekhez gombokat ad.
 function notificationsPage() {
@@ -1117,7 +1149,7 @@ async function refreshPartyChat(partyId, scrollToBottom = false, showError = fal
       messages
         .map((message) => {
           const own = (message.sender?._id || message.sender)?.toString() === allapot.user.id;
-          return `<article id="party-chat-message-${esc(message._id)}" class="chat-message ${own ? 'own' : ''}">${avatarMarkup(message.sender || { nickname: '?' }, 'chat-avatar')}<div class="chat-message-body"><div class="chat-message-meta"><strong>${esc(message.sender?.nickname || 'Résztvevő')}</strong><time datetime="${esc(message.createdAt)}">${chatTime(message.createdAt)}</time></div><p>${userContentMarkup(message.text)}</p></div></article>`;
+          return `<article id="party-chat-message-${esc(message._id)}" class="chat-message ${own ? 'own' : ''}">${avatarMarkup(message.sender || { nickname: '?' }, 'chat-avatar')}<div class="chat-message-body"><div class="chat-message-meta"><strong>${esc(message.sender?.nickname || 'Résztvevő')}</strong><time datetime="${esc(message.createdAt)}">${chatTime(message.createdAt)}</time></div><p>${chatMessageMarkup(message)}</p></div></article>`;
         })
         .join('') || '<p class="chat-empty">Még nincs üzenet. Kezdd el a beszélgetést!</p>';
     if (targetMessageId) {
@@ -1195,7 +1227,7 @@ function renderParty(p) {
     mentionCandidates
       .map(
         (user) =>
-          `<button type="button" class="chat-mention-option" data-action="mention-user" data-user="${esc(user._id || user)}" data-username="${esc(user.username || user.nickname)}" data-nickname="${esc(user.nickname || 'Résztvevő')}"><strong>@${esc(user.username || user.nickname)}</strong><small>${esc(user.nickname || 'Résztvevő')}</small></button>`
+          `<button type="button" class="chat-mention-option" data-action="mention-user" data-user="${esc(user._id || user)}" data-username="${esc(user.username || user.nickname)}" data-nickname="${esc(user.nickname || 'Résztvevő')}" aria-pressed="false"><strong>@${esc(user.username || user.nickname)}</strong><small>${esc(user.nickname || 'Résztvevő')}</small></button>`
       )
       .join('') || '<p class="chat-mention-empty">Nincs megjelölhető résztvevő.</p>';
   const formatFt = (amount) => `${new Intl.NumberFormat(localeOf()).format(amount)} Ft`;
@@ -1392,6 +1424,12 @@ async function searchFriends() {
 }
 // Navigációs gombok és eseményműveletek közös eseménykezelője.
 // Egyetlen kattintásfigyelő kezeli a dinamikusan létrejövő gombokat és linkeket.
+document.addEventListener('focusin', (event) => {
+  if (event.target.id !== 'party-chat-input') return;
+  const form = event.target.closest('#party-chat-form');
+  $('#chat-mention-picker', form)?.classList.add('hidden');
+  $('[data-action="toggle-mention-picker"]', form)?.setAttribute('aria-expanded', 'false');
+});
 document.addEventListener('click', async (event) => {
   const preset = event.target.closest('[data-theme-preset]');
   if (preset) {
@@ -1656,7 +1694,19 @@ document.addEventListener('click', async (event) => {
       const input = $('#party-chat-input', form);
       const username = button.dataset.username;
       const mentionedUserIds = JSON.parse(form.dataset.mentionedUserIds || '[]');
-      if (!mentionedUserIds.includes(button.dataset.user)) {
+      const selectedIndex = mentionedUserIds.indexOf(button.dataset.user);
+      if (selectedIndex >= 0) {
+        const tokenPattern = new RegExp(`(^|\\s)@${username.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}(?=$|\\s|[.,!?;:])`, 'i');
+        const match = tokenPattern.exec(input.value);
+        if (match) {
+          let start = match.index + match[1].length;
+          let end = start + username.length + 1;
+          if (/\s/.test(input.value[end] || '')) end += 1;
+          else if (start > 0 && /\s/.test(input.value[start - 1])) start -= 1;
+          input.setRangeText('', start, end, 'preserve');
+        }
+        mentionedUserIds.splice(selectedIndex, 1);
+      } else {
         const token = `@${username}`;
         const start = input.selectionStart;
         const end = input.selectionEnd;
@@ -1666,12 +1716,18 @@ document.addEventListener('click', async (event) => {
         if (input.value.length + insertion.length - (end - start) > input.maxLength)
           return toast('Az üzenet elérte a maximális hosszát.', true);
         input.setRangeText(insertion, start, end, 'end');
-        input.focus();
         mentionedUserIds.push(button.dataset.user);
-        form.dataset.mentionedUserIds = JSON.stringify(mentionedUserIds);
-        button.disabled = true;
-        button.innerHTML = `<strong>✓ @${esc(username)}</strong><small>Megjelölve</small>`;
       }
+      form.dataset.mentionedUserIds = JSON.stringify(mentionedUserIds);
+      const selected = mentionedUserIds.includes(button.dataset.user);
+      button.classList.toggle('is-mentioned', selected);
+      button.setAttribute('aria-pressed', String(selected));
+      button.innerHTML = selected
+        ? `<strong>✓ @${esc(username)}</strong><small>Megjelölve · kattints a kivételhez</small>`
+        : `<strong>@${esc(username)}</strong><small>${esc(button.dataset.nickname)}</small>`;
+      $('#chat-mention-picker', form).classList.add('hidden');
+      $('[data-action="toggle-mention-picker"]', form).setAttribute('aria-expanded', 'false');
+      input.focus();
     }
     if (action === 'create') partyModal();
     if (action === 'edit-party' && allapot.activeParty?.host?._id === allapot.user.id)
@@ -1697,11 +1753,17 @@ document.addEventListener('click', async (event) => {
       await api(`/users/friends/request/${button.dataset.user}`, { method: 'POST' });
       button.disabled = true;
       button.textContent = 'Elküldve';
+      if (allapot.viewedProfile?.id === button.dataset.user)
+        allapot.viewedProfile.requestSent = true;
       toast('Barátfelkérés elküldve.');
     }
     if (action === 'accept-friend') {
       await api(`/users/friends/requests/${button.dataset.user}/accept`, { method: 'POST' });
       await refreshData();
+      if (allapot.view === 'friend-profile' && allapot.viewedProfile?.id === button.dataset.user) {
+        const { user } = await api(`/users/${encodeURIComponent(button.dataset.user)}`);
+        allapot.viewedProfile = user;
+      }
       await render();
       toast('Felkérés elfogadva.');
     }
@@ -2018,7 +2080,8 @@ document.addEventListener('submit', async (event) => {
       form.reset();
       form.dataset.mentionedUserIds = '[]';
       $$('.chat-mention-option', form).forEach((option) => {
-        option.disabled = false;
+        option.classList.remove('is-mentioned');
+        option.setAttribute('aria-pressed', 'false');
         option.innerHTML = `<strong>@${esc(option.dataset.username)}</strong><small>${esc(option.dataset.nickname)}</small>`;
       });
       await refreshPartyChat(form.dataset.partyId, true, true);

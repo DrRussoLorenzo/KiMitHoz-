@@ -822,6 +822,17 @@ describe('Szerver és adatbázis', () => {
     const token = jwt.sign({ sub: sender._id.toString() }, process.env.JWT_SECRET);
     const endpoint = `/api/parties/${party._id}/chat/messages`;
 
+    const sharedProfile = await request(app)
+      .get(`/api/users/${mentioned._id}`)
+      .set('Authorization', `Bearer ${token}`)
+      .expect(200);
+    expect(sharedProfile.body.user).toMatchObject({
+      id: mentioned._id.toString(),
+      isFriend: false,
+      requestSent: false,
+      requestReceived: false,
+    });
+
     const response = await request(app)
       .post(endpoint)
       .set('Authorization', `Bearer ${token}`)
@@ -833,6 +844,16 @@ describe('Szerver és adatbázis', () => {
 
     expect(response.body.message.mentionedUsers.map(String)).toEqual(
       expect.arrayContaining([String(mentioned._id), String(muted._id)])
+    );
+    const latestMessages = await request(app)
+      .get(endpoint)
+      .set('Authorization', `Bearer ${token}`)
+      .expect(200);
+    expect(latestMessages.body.messages[0].mentionedUsers).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({ _id: mentioned._id.toString(), username: 'megjelolt' }),
+        expect.objectContaining({ _id: muted._id.toString(), username: 'nemker' }),
+      ])
     );
     expect(await PartyMessage.countDocuments({ party: party._id })).toBe(1);
     expect(
@@ -873,14 +894,50 @@ describe('Szerver és adatbázis', () => {
       .expect(200);
     expect(targetChat.body.messages).toHaveLength(51);
     expect(
+      targetChat.body.messages.find((message) => message._id === response.body.message._id)
+        .mentionedUsers
+    ).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({ _id: mentioned._id.toString(), username: 'megjelolt' }),
+      ])
+    );
+    expect(
       targetChat.body.messages.some((message) => message._id === response.body.message._id)
     ).toBe(true);
+
+    await request(app)
+      .post(`/api/users/friends/request/${mentioned._id}`)
+      .set('Authorization', `Bearer ${token}`)
+      .expect(201);
+    const pendingProfile = await request(app)
+      .get(`/api/users/${mentioned._id}`)
+      .set('Authorization', `Bearer ${token}`)
+      .expect(200);
+    expect(pendingProfile.body.user.requestSent).toBe(true);
+    const recipientToken = jwt.sign({ sub: mentioned._id.toString() }, process.env.JWT_SECRET);
+    const receivedProfile = await request(app)
+      .get(`/api/users/${sender._id}`)
+      .set('Authorization', `Bearer ${recipientToken}`)
+      .expect(200);
+    expect(receivedProfile.body.user.requestReceived).toBe(true);
+    await request(app)
+      .post(`/api/users/friends/requests/${sender._id}/accept`)
+      .set('Authorization', `Bearer ${recipientToken}`)
+      .expect(200);
+    const friendProfile = await request(app)
+      .get(`/api/users/${mentioned._id}`)
+      .set('Authorization', `Bearer ${token}`)
+      .expect(200);
+    expect(friendProfile.body.user.isFriend).toBe(true);
 
     const inbox = await request(app)
       .get('/api/notifications')
       .set('Authorization', `Bearer ${mentionedToken}`)
       .expect(200);
-    expect(inbox.body.notifications[0].partyMessage._id).toBe(response.body.message._id);
+    const mentionInboxItem = inbox.body.notifications.find(
+      (item) => item.type === 'party-mention'
+    );
+    expect(mentionInboxItem.partyMessage._id).toBe(response.body.message._id);
 
     await request(app)
       .post(endpoint)

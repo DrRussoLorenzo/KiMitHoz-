@@ -1314,6 +1314,11 @@ body.dark .file-upload-control > i:first-child {
 .public-profile-card {
   max-width: 620px;
 }
+.profile-friend-action {
+  display: flex;
+  justify-content: flex-start;
+  margin-top: 20px;
+}
 .profile-heading-row {
   display: flex;
   align-items: flex-start;
@@ -1903,6 +1908,7 @@ body.dark .party-map-popup .maplibregl-popup-content {
 .chat-avatar {
   display: grid;
   place-items: center;
+  position: relative;
   flex: 0 0 30px;
   width: 30px;
   height: 30px;
@@ -1914,9 +1920,12 @@ body.dark .party-map-popup .maplibregl-popup-content {
   font-weight: 700;
 }
 .chat-avatar img {
+  position: absolute;
+  inset: 0;
   width: 100%;
   height: 100%;
   object-fit: cover;
+  border-radius: inherit;
 }
 .chat-message-body {
   min-width: 0;
@@ -1966,6 +1975,25 @@ body.dark .party-map-popup .maplibregl-popup-content {
   line-height: 1.5;
   overflow-wrap: anywhere;
   white-space: pre-wrap;
+}
+.chat-mention-link {
+  display: inline;
+  padding: 0;
+  border: 0;
+  background: none;
+  color: #39ff14;
+  font: inherit;
+  font-weight: 700;
+  text-decoration: underline;
+  text-decoration-thickness: 1.5px;
+  text-underline-offset: 2px;
+  cursor: pointer;
+}
+.chat-mention-link:hover,
+.chat-mention-link:focus-visible {
+  color: #a6ff8e;
+  outline: 1px solid currentColor;
+  outline-offset: 2px;
 }
 .chat-empty {
   align-self: center;
@@ -2028,9 +2056,9 @@ body.dark .party-map-popup .maplibregl-popup-content {
   outline: 2px solid var(--selection-outline, var(--primary));
   background: var(--lav);
 }
-.chat-mention-option:disabled {
+.chat-mention-option.is-mentioned {
   color: var(--primary);
-  cursor: default;
+  background: var(--lav);
 }
 .chat-mention-option small,
 .chat-mention-empty {
