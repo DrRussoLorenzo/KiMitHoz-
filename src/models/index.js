@@ -17,6 +17,7 @@ const felhasznaloAdatSchema = new mongoose.Schema(
     nickname: { type: String, required: true, trim: true, maxlength: 40 },
     role: { type: String, enum: ['user', 'admin'], default: 'user', required: true },
     isBanned: { type: Boolean, default: false },
+    lastSeenAt: { type: Date, default: null, index: true },
     banReason: { type: String, default: '', maxlength: 240 },
     bannedAt: { type: Date },
     age: { type: Number, min: 16, max: 120 },

@@ -5,6 +5,14 @@ const { User, Party, Notification } = require('../models');
 const { uploadImage } = require('../services/cloudinary');
 
 router.use(auth);
+const onlineWindowMs = 90 * 1000;
+const countOnlineFriends = (friendIds) =>
+  User.countDocuments({
+    _id: { $in: friendIds },
+    lastSeenAt: { $gte: new Date(Date.now() - onlineWindowMs) },
+    isBanned: false,
+    verificationStatus: 'approved',
+  });
 const profilkepKiterjesztesek = {
   'image/jpeg': '.jpg',
   'image/png': '.png',
@@ -40,12 +48,32 @@ const nyilvanosAdatlap = (felhasznalo) => ({
 router.get('/friends', async (keres, valasz, folytatas) => {
   try {
     const felhasznalo = await User.findById(keres.user.id)
-      .populate('friends', 'username nickname age avatar bio')
+      .populate('friends', 'username nickname age avatar bio lastSeenAt isBanned verificationStatus')
       .populate('friendRequests', 'username nickname age avatar bio');
+    const onlineSince = new Date(Date.now() - onlineWindowMs);
+    const friends = felhasznalo.friends.map((friend) => ({
+      ...nyilvanosAdatlap(friend),
+      online:
+        !friend.isBanned &&
+        friend.verificationStatus === 'approved' &&
+        friend.lastSeenAt >= onlineSince,
+    }));
     valasz.json({
-      friends: felhasznalo.friends.map(nyilvanosAdatlap),
+      friends,
       requests: felhasznalo.friendRequests.map(nyilvanosAdatlap),
+      onlineFriends: friends.filter((friend) => friend.online).length,
     });
+  } catch (hiba) {
+    folytatas(hiba);
+  }
+});
+
+// A kliens 30 másodpercenként frissíti a jelenlétet; 90 másodperc után offline-nak számít.
+router.post('/presence', async (keres, valasz, folytatas) => {
+  try {
+    await User.updateOne({ _id: keres.user.id }, { $set: { lastSeenAt: new Date() } });
+    const onlineFriends = await countOnlineFriends(keres.user.friends);
+    valasz.json({ onlineFriends });
   } catch (hiba) {
     folytatas(hiba);
   }

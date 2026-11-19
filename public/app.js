@@ -7,6 +7,7 @@ const allapot = {
   discoverParties: [],
   archivedParties: [],
   friends: [],
+  onlineFriends: 0,
   requests: [],
   notifications: [],
   musicPlaylists: [],
@@ -145,6 +146,7 @@ let partyLocationMap;
 let partyLocationMarker;
 let partyChatTimer;
 let partyMusicTimer;
+let presenceTimer;
 let youtubeApiPromise;
 let youtubePlayerInstance;
 let youtubePlayerGeneration = 0;
@@ -192,6 +194,8 @@ function toast(message, error = false) {
   toastTimer = setTimeout(() => node.classList.remove('show'), 3000);
 }
 function logout(message = true) {
+  clearInterval(presenceTimer);
+  presenceTimer = null;
   allapot.token = null;
   allapot.user = null;
   localStorage.removeItem('KiMitHoz-token');
@@ -354,6 +358,31 @@ function showApp() {
   window.KiMitHozI18n?.nyelvBeallitasa(allapot.user.settings?.language || 'hu');
   syncThemeToggle(allapot.user.settings?.theme);
 }
+function renderOnlineFriendsCount(count = allapot.onlineFriends) {
+  const label = $('#online-friends-count');
+  if (!label) return;
+  const language = allapot.user?.settings?.language || 'hu';
+  label.textContent = language === 'en'
+    ? `${count} friend${count === 1 ? '' : 's'} online right now.`
+    : language === 'de'
+      ? `${count} ${count === 1 ? 'Freund ist' : 'Freunde sind'} gerade online.`
+      : `Jelenleg ${count} barátod van online.`;
+}
+async function sendPresenceHeartbeat() {
+  if (!allapot.token || !allapot.user) return;
+  try {
+    const result = await api('/users/presence', { method: 'POST' });
+    allapot.onlineFriends = result.onlineFriends;
+    renderOnlineFriendsCount();
+  } catch (_error) {
+    // A következő heartbeat újrapróbálja; a jelenlét nem akadályozhatja az alkalmazás használatát.
+  }
+}
+function startPresenceHeartbeat() {
+  clearInterval(presenceTimer);
+  sendPresenceHeartbeat();
+  presenceTimer = setInterval(sendPresenceHeartbeat, 30 * 1000);
+}
 // A belépés/regisztráció fülek között vált, és beállítja a szükséges űrlapmezőket.
 function setAuthMode(mode) {
   allapot.authMode = mode;
@@ -397,6 +426,8 @@ async function refreshData() {
   allapot.friends = friends.friends;
   allapot.requests = friends.requests;
   allapot.notifications = notes.notifications;
+  allapot.onlineFriends = friends.onlineFriends || 0;
+  renderOnlineFriendsCount();
   $('#notification-count').textContent = notes.unread;
   $('#notification-count').classList.toggle('hidden', !notes.unread);
   $('#notification-dot').classList.toggle('hidden', !notes.unread);
@@ -1304,20 +1335,6 @@ async function render() {
   }
   partyChatTimer = null;
   releaseGalleryObjectUrls();
-  const labels = {
-    home: 'Áttekintés',
-    parties: 'Bulijaim',
-    music: 'Zenék',
-    discover: 'Felfedezés',
-    archive: 'Galéria',
-    friends: 'Barátok',
-    notifications: 'Értesítések',
-    profile: 'Profilom',
-    'friend-profile': 'Ismerős profilja',
-    'party-detail': 'Buli részletei',
-  };
-  $('#breadcrumb').innerHTML =
-    `<button type="button" class="breadcrumb-link" data-view="${esc(allapot.view)}" aria-current="page">${labels[allapot.view]}</button><span aria-hidden="true">/</span><button type="button" class="breadcrumb-link" data-view="home">Neked</button>`;
   $$('.nav-link').forEach((link) =>
     link.classList.toggle(
       'active',
@@ -1984,8 +2001,11 @@ document.addEventListener('submit', async (event) => {
         allapot.token = result.token;
         allapot.user = { ...result.user, id: result.user.id || result.user._id };
         localStorage.setItem('KiMitHoz-token', allapot.token);
+        if (new URLSearchParams(location.search).has('register'))
+          history.replaceState(history.state, '', `${location.pathname}${location.hash}`);
         showApp();
         await refreshData();
+        startPresenceHeartbeat();
         allapot.view = 'home';
         saveRoute('replace');
         await render();
@@ -2302,16 +2322,46 @@ $('#theme-toggle').addEventListener('click', async () => {
   }
 });
 $('#create-party-top').addEventListener('click', () => partyModal());
+$('#invite-top').addEventListener('click', async () => {
+  const registrationUrl = `${location.origin}/?register=1`;
+  try {
+    if (navigator.clipboard?.writeText) await navigator.clipboard.writeText(registrationUrl);
+    else throw new Error('A vágólap API nem érhető el.');
+    toast('A regisztrációs meghívó link a vágólapra került.');
+  } catch (_error) {
+    const temporaryInput = document.createElement('textarea');
+    temporaryInput.value = registrationUrl;
+    temporaryInput.setAttribute('readonly', '');
+    temporaryInput.style.position = 'fixed';
+    temporaryInput.style.opacity = '0';
+    document.body.append(temporaryInput);
+    temporaryInput.select();
+    const copied = document.execCommand('copy');
+    temporaryInput.remove();
+    toast(
+      copied
+        ? 'A regisztrációs meghívó link a vágólapra került.'
+        : 'A meghívó linket nem sikerült a vágólapra másolni.',
+      !copied
+    );
+  }
+  location.assign(registrationUrl);
+});
 $('#sidebar-profile').addEventListener('click', async () => navigateView('profile'));
 $('#mobile-menu').addEventListener('click', () => $('.sidebar').classList.toggle('open'));
 // Induláskor ellenőrzi a mentett munkamenetet, majd betölti az első nézetet.
 async function boot() {
+  if (new URLSearchParams(location.search).get('register') === '1') {
+    setAuthMode('register');
+    return;
+  }
   if (!allapot.token) return;
   try {
     const { user } = await api('/auth/me');
     allapot.user = { ...user, id: user.id || user._id };
     showApp();
     await refreshData();
+    startPresenceHeartbeat();
     if (history.state?.app === 'kimithoz') await restoreRoute(history.state);
     else {
       allapot.view = 'home';

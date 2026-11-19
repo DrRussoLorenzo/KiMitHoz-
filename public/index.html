@@ -188,7 +188,7 @@
         <div class="sidebar-bottom">
           <div class="sidebar-tip">
             <span>✦</span><strong>Együtt egyszerűbb</strong>
-            <p>A közös listán mindenki látja, ki mit hoz.</p>
+            <p id="online-friends-count">Jelenleg 0 barátod van online.</p>
           </div>
           <button id="sidebar-profile" class="user-chip">
             <span id="sidebar-avatar" class="avatar">K</span
@@ -209,8 +209,16 @@
               <span class="brand-name-purple">HOZ?</span>
             </span>
           </a>
-          <div class="breadcrumb" id="breadcrumb">Áttekintés <span>/</span> Neked</div>
           <div class="top-actions">
+            <a class="top-social-link" href="https://www.instagram.com/kimithoz/" target="_blank" rel="noopener noreferrer" aria-label="KiMitHoz az Instagramon" title="Instagram">
+              <i class="fa-brands fa-instagram" aria-hidden="true"></i>
+            </a>
+            <a class="top-social-link" href="https://www.tiktok.com/@kimithoz" target="_blank" rel="noopener noreferrer" aria-label="KiMitHoz a TikTokon" title="TikTok">
+              <i class="fa-brands fa-tiktok" aria-hidden="true"></i>
+            </a>
+            <button id="invite-top" class="button button-outline invite-top" type="button" title="Meghívó link másolása és regisztráció megnyitása">
+              <i class="fa-solid fa-user-plus" aria-hidden="true"></i><span>Meghívás</span>
+            </button>
             <button class="icon-button" id="theme-toggle" aria-label="Téma váltása">
               <i class="fa-regular fa-moon"></i></button
             ><button

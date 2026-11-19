@@ -871,35 +871,31 @@ body.dark .file-upload-control > i:first-child {
   justify-content: space-between;
   background: color-mix(in srgb, var(--surface) 92%, transparent);
 }
-.breadcrumb {
-  color: var(--muted);
-  font-size: 12px;
-  display: flex;
-  align-items: center;
-}
-.breadcrumb-link {
-  border: 0;
-  padding: 3px 0;
-  background: transparent;
-  color: inherit;
-  font: inherit;
-  cursor: pointer;
-}
-.breadcrumb-link:hover,
-.breadcrumb-link:focus-visible {
-  color: var(--primary);
-  text-decoration: underline;
-  text-underline-offset: 3px;
-  outline: none;
-}
-.breadcrumb span {
-  padding: 0 8px;
-  color: #c4c4bd;
-}
 .top-actions {
   display: flex;
   align-items: center;
   gap: 11px;
+}
+.top-social-link {
+  display: grid;
+  place-items: center;
+  width: 37px;
+  height: 37px;
+  border: 1px solid var(--line);
+  border-radius: 10px;
+  background: var(--surface);
+  color: var(--ink);
+  font-size: 17px;
+  text-decoration: none;
+}
+.top-social-link:hover {
+  color: var(--accent-strong);
+}
+.invite-top {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  white-space: nowrap;
 }
 .icon-button {
   position: relative;
@@ -2412,7 +2408,6 @@ body.dark .side-label,
 body.dark .sidebar-tip p,
 body.dark .user-chip small,
 body.dark .more,
-body.dark .breadcrumb,
 body.dark .greeting-kicker,
 body.dark .auth-tabs button,
 body.dark .party-meta,
@@ -2454,7 +2449,8 @@ body.dark .auth-form-wrap {
 body.dark .auth-form-wrap h2 {
   color: #f2f7f4;
 }
-body.dark .auth-form-wrap .eyebrow {
+body.dark .auth-form-wrap .button-dark {
+  background: var(--surface);
   color: #b7ee94;
 }
 body.dark .auth-form-wrap .muted,
@@ -2572,16 +2568,33 @@ a:focus-visible {
   .mobile-brand .brand-name {
     font-size: 18px;
   }
-  .breadcrumb {
+  .top-social-link {
     display: none;
   }
   .top-actions {
     gap: 7px;
   }
+  .top-social-link {
+    width: 32px;
+    height: 32px;
+    font-size: 15px;
+  }
+  .invite-top {
+    width: 32px;
+    height: 32px;
+    justify-content: center;
+    padding: 0;
+  }
+  .invite-top span {
+    display: none;
+  }
   .top-create {
     padding: 9px 11px;
   }
   .top-create span {
+    display: none;
+  }
+  .top-create {
     display: none;
   }
   .mobile-menu {

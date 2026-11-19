@@ -81,6 +81,39 @@ describe('Szerver és adatbázis', () => {
     expect(savedUser.username).toBe('teszt_user');
   });
 
+  it('a jelenlét heartbeat frissíti a barát online állapotát és visszaadja a számát', async () => {
+    const user = await User.create({
+      email: 'presence@example.com',
+      username: 'presence_user',
+      nickname: 'Jelenlét teszt',
+      passwordHash: 'test-password-hash',
+    });
+    const friend = await User.create({
+      email: 'presence-friend@example.com',
+      username: 'presence_friend',
+      nickname: 'Online barát',
+      passwordHash: 'test-password-hash',
+      lastSeenAt: new Date(),
+    });
+    user.friends.push(friend._id);
+    await user.save();
+    const token = jwt.sign({ sub: user._id.toString() }, process.env.JWT_SECRET);
+
+    const heartbeat = await request(app)
+      .post('/api/users/presence')
+      .set('Authorization', `Bearer ${token}`)
+      .expect(200);
+    const friends = await request(app)
+      .get('/api/users/friends')
+      .set('Authorization', `Bearer ${token}`)
+      .expect(200);
+
+    expect(heartbeat.body.onlineFriends).toBe(1);
+    expect(friends.body.onlineFriends).toBe(1);
+    expect(friends.body.friends[0]).toMatchObject({ id: friend._id.toString(), online: true });
+    expect((await User.findById(user._id)).lastSeenAt).toBeInstanceOf(Date);
+  });
+
   it('GET / kiszolgálja a frontend HTML-oldalát', async () => {
     const response = await getRequest('/');
 
